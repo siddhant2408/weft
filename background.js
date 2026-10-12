@@ -18,6 +18,7 @@ const HINTS = {
   API_DOWN: 'The provider is overloaded or down. Retry in a bit.',
   NETWORK: 'Couldn\'t reach the provider. Check your connection.',
   REFUSED: 'The model declined to answer this one.',
+  INCOMPLETE: 'The reply was interrupted or hit its output limit. Retry to get a complete answer.',
 };
 const fail = (code, detail) => ({ error: { code, hint: (HINTS[code] && detail && /^API_|REFUSED/.test(code) ? `${HINTS[code]} (${detail})` : HINTS[code]) || detail || code } });
 

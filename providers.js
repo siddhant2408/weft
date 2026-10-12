@@ -75,13 +75,13 @@ async function streamRequest(url, init, onData, onText) {
   try {
     const res = await fetch(url, { ...init, signal: ctrl.signal });
     if (!res.ok) return httpError(res.status, await readError(res));
-    let text = '';
+    let text = '', complete = false;
     for await (const ev of sse(res.body)) {
       const delta = onData(ev);
-      if (delta === null) break;
+      if (delta === null) { complete = true; break; }
       if (delta) { text += delta; onText?.(text); }
     }
-    return { ok: true, text };
+    return complete ? { ok: true, text } : { ok: false, code: 'INCOMPLETE', detail: 'The stream ended before the reply completed.' };
   } catch (e) {
     if (e?.code) return { ok: false, ...e };
     if (e?.name === 'AbortError') return { ok: false, code: 'TIMEOUT', detail: 'no reply in 120 s' };
@@ -118,6 +118,7 @@ function anthropic({ system, notes, prompt }, cfg, onText) {
     if (j.type === 'error') throw { code: j.error?.type === 'overloaded_error' ? 'API_DOWN' : 'API_ERROR', detail: j.error?.message || 'stream error' };
     if (j.type === 'content_block_delta' && j.delta?.type === 'text_delta') return j.delta.text;
     if (j.type === 'message_delta' && j.delta?.stop_reason === 'refusal') throw { code: 'REFUSED', detail: j.delta.stop_details?.explanation || '' };
+    if (j.type === 'message_delta' && j.delta?.stop_reason === 'max_tokens') throw { code: 'INCOMPLETE', detail: 'The reply reached the output token limit.' };
     if (j.type === 'message_stop') return null;
     return '';
   }, onText);
@@ -141,6 +142,7 @@ function openai({ system, notes, prompt }, cfg, onText) {
     if (data === '[DONE]') return null;
     const j = JSON.parse(data);
     if (j.error) throw { code: 'API_ERROR', detail: j.error.message || JSON.stringify(j.error) };
+    if (j.choices?.some((c) => c.finish_reason === 'length')) throw { code: 'INCOMPLETE', detail: 'The reply reached the output token limit.' };
     return j.choices?.[0]?.delta?.content || '';
   }, onText);
 }
