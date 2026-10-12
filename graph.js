@@ -61,14 +61,15 @@ export function graphData(items) {
 
 // Force-directed layout (Fruchterman–Reingold with a pull to the centre), deterministic: same input, same picture.
 // ponytail: O(n²) per step; fine to ~1,500 nodes, switch to a quadtree (d3-force) beyond that.
-export function layout(n, edges, iterations = 300) {
+// mass[i] scales how hard node i pushes others away; hubs get more so their labels don't collide.
+export function layout(n, edges, iterations = 300, mass = []) {
   const k = 40;
   const p = Array.from({ length: n }, (_, i) => ({ x: Math.cos(i * 2.4) * 12 * Math.sqrt(i + 1), y: Math.sin(i * 2.4) * 12 * Math.sqrt(i + 1) }));
   let t = 40;
   for (let it = 0; it < iterations; it++) {
     const d = p.map((q) => ({ x: -q.x * 0.04 * k, y: -q.y * 0.04 * k }));  // gravity keeps islands near
     for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) {
-      const dx = p[i].x - p[j].x, dy = p[i].y - p[j].y, dist = Math.hypot(dx, dy) || 0.01, f = (k * k) / dist;
+      const dx = p[i].x - p[j].x, dy = p[i].y - p[j].y, dist = Math.hypot(dx, dy) || 0.01, f = (k * k * (mass[i] || 1) * (mass[j] || 1)) / dist;
       d[i].x += (dx / dist) * f; d[i].y += (dy / dist) * f; d[j].x -= (dx / dist) * f; d[j].y -= (dy / dist) * f;
     }
     for (const [a, b] of edges) {

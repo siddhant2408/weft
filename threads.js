@@ -29,28 +29,28 @@ const matches = (h, page) => {
 
 async function copy(btn, text) {
   await navigator.clipboard.writeText(text);
-  const label = btn.textContent;
-  btn.textContent = 'Copied ✓';
-  setTimeout(() => { btn.textContent = label; }, 1500);
+  btn.title = btn.ariaLabel = 'Copied';
+  btn.classList.add('copied');
+  setTimeout(() => { btn.title = btn.ariaLabel = 'Copy as notes'; btn.classList.remove('copied'); }, 1500);
 }
 
+// One thread as a card, like the side panel's: yellow spine while open, green once resolved.
+const day = (ts) => new Date(ts).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 function item(h, page) {
   const lastQ = h.messages.filter((m) => m.role === 'user').at(-1);
-  const n = h.messages.length;
+  const n = h.messages.length, last = h.messages.at(-1)?.ts || h.createdAt;
   const resolved = h.status === 'resolved';
-  return el('article', { className: 'item' + (resolved ? ' resolved' : '') },
-    el('p', { className: 'quote' }, el('span', { className: 'hl', textContent: h.exact })),
-    h.takeaway ? el('div', { className: 'takeaway' }, el('b', { textContent: 'Takeaway' }), h.takeaway)
-      : lastQ && el('div', { className: 'msg open-q' }, el('div', { className: 'av', textContent: 'Y', ariaHidden: 'true' }),
-        el('div', { className: 'meta' }, el('span', { className: 'name', textContent: 'You' })), el('div', { className: 'body', textContent: lastQ.content })),
-    el('div', { className: 'foot' },
-      el('span', { textContent: resolved ? 'Resolved' : 'Open' }),
-      el('span', { textContent: `${n} comment${n === 1 ? '' : 's'}` }),
-      el('span', { textContent: new Date(h.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) }),
-      el('a', { href: MarginNotes.fragmentUrl(page.urlKey, h.exact), target: '_blank', rel: 'noopener', textContent: 'Open passage ↗' })),
+  return el('article', { className: 'card' + (resolved ? ' done' : '') },
+    el('a', { className: 'passage', href: MarginNotes.fragmentUrl(page.urlKey, h.exact), target: '_blank', rel: 'noopener',
+      title: 'Open this passage on its page', textContent: h.exact }),
+    h.takeaway ? el('p', { className: 'learned', textContent: h.takeaway })
+      : lastQ && el('p', { className: 'ask' }, el('span', { className: 'who', textContent: 'You asked' }), lastQ.content),
     h.concepts?.length && el('div', { className: 'chips' }, ...h.concepts.map((c) =>
-      el('button', { className: 'chip', textContent: c, title: `Threads about ${c}`, onclick: () => showConcept(norm(c)) }))));
+      el('button', { className: 'chip', textContent: c, title: `Show threads about ${c}`, onclick: () => showConcept(norm(c)) }))),
+    el('div', { className: 'meta-line', textContent: `${n ? `${n} comment${n === 1 ? '' : 's'}` : 'No comments yet'} · ${day(last)}` }));
 }
+
+const COPY = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 5.5V4A1.5 1.5 0 0 0 9 2.5H4A1.5 1.5 0 0 0 2.5 4v5A1.5 1.5 0 0 0 4 10.5h1.5"/></svg>';
 
 // Concepts are labelled hubs; threads are dots (yellow open, green resolved) joined to the concepts they share.
 const NS = 'http://www.w3.org/2000/svg';
@@ -70,11 +70,12 @@ function graphView(items) {
     items.length - untagged - g.threads.length > 0 && `${items.length - untagged - g.threads.length} share no concept with another thread yet.`,
   ].filter(Boolean).join(' ');
   if (!g.concepts.length) {
-    return [el('div', { className: 'empty' }, el('b', { textContent: 'No connections yet' }),
-      'Threads link when two of them share a concept. Keep reading and commenting.'), note && el('p', { className: 'graph-note', textContent: note })];
+    return [el('div', { className: 'graph-card' }, el('div', { className: 'empty' }, el('b', { textContent: 'No connections yet' }),
+      'Two threads link when they share a concept. Comment on a few related pages and they appear here.'),
+      note && el('p', { className: 'graph-note', textContent: note }))];
   }
   const T = g.threads.length;
-  const pos = layout(T + g.concepts.length, g.edges.map(([t, c]) => [t, T + c]));
+  const pos = layout(T + g.concepts.length, g.edges.map(([t, c]) => [t, T + c]), 300, [...Array(T).fill(1), ...g.concepts.map(() => 2.5)]);
   const xs = pos.map((p) => p.x), ys = pos.map((p) => p.y), pad = 70;
   const box = [Math.min(...xs) - pad, Math.min(...ys) - pad, Math.max(...xs) - Math.min(...xs) + 2 * pad, Math.max(...ys) - Math.min(...ys) + 2 * pad];
   const svg = s_('svg', { viewBox: box.join(' '), class: 'graph', role: 'img', 'aria-label': `${g.concepts.length} concepts linking ${T} threads` });
@@ -108,7 +109,12 @@ function graphView(items) {
     return hub;
   });
   svg.append(s_('g', {}, ...hubs), s_('g', {}, ...labels));
-  return [svg, el('p', { className: 'graph-note', textContent: ['Click a concept to see its threads, a dot to open its passage.', note].filter(Boolean).join(' ') })];
+  const legend = el('div', { className: 'graph-legend' },
+    el('span', {}, el('span', { className: 'ring' }), `${g.concepts.length} shared concept${g.concepts.length === 1 ? '' : 's'}`),
+    el('span', {}, el('span', { className: 'dot o' }), 'Open thread'),
+    el('span', {}, el('span', { className: 'dot d' }), 'Resolved thread'));
+  return [el('div', { className: 'graph-card' }, legend, svg,
+    el('p', { className: 'graph-note', textContent: ['Click a concept to list its threads, or a dot to open its passage.', note].filter(Boolean).join(' ') }))];
 }
 
 function setView(v) {
@@ -120,7 +126,16 @@ function setView(v) {
 function render() {
   const total = pages.reduce((n, p) => n + p.highlights.length, 0);
   const resolved = pages.reduce((n, p) => n + p.highlights.filter((h) => h.status === 'resolved').length, 0);
-  $('meta').textContent = `${total} thread${total === 1 ? '' : 's'} on ${pages.length} page${pages.length === 1 ? '' : 's'} · ${resolved} resolved`;
+  $('meta').textContent = `${total} thread${total === 1 ? '' : 's'} on ${pages.length} page${pages.length === 1 ? '' : 's'}`;
+  const o = total - resolved;
+  $('progress').hidden = !total;
+  $('progress').replaceChildren(...(total ? [
+    el('div', { className: 'bar', role: 'img', ariaLabel: `${resolved} of ${total} threads resolved` },
+      resolved > 0 && el('span', { className: 'd', style: `flex-grow:${resolved}` }), o > 0 && el('span', { className: 'o', style: `flex-grow:${o}` })),
+    el('div', { className: 'legend' },
+      el('span', {}, el('span', { className: 'dot d' }), `${resolved} resolved`),
+      el('span', {}, el('span', { className: 'dot o' }), `${o} open`)),
+  ] : []));
 
   const filtered = pages.flatMap((page) => page.highlights.filter((h) => matches(h, page)).map((h) => ({ page, h })));
   const label = concept && filtered.flatMap((it) => it.h.concepts || []).find((c) => norm(c) === concept);
@@ -134,14 +149,16 @@ function render() {
     if (!hs.length) continue;
     let host = '';
     try { host = new URL(page.urlKey).hostname.replace(/^www\./, ''); } catch {}
-    const copyBtn = el('button', { className: 'btn plain', textContent: 'Copy as notes' });
+    const copyBtn = el('button', { className: 'icon-btn', title: 'Copy as notes', ariaLabel: 'Copy as notes' });
+    copyBtn.innerHTML = COPY;
     copyBtn.addEventListener('click', () => copy(copyBtn, MarginNotes.pageMarkdown(page, hs)));
     sections.push(el('section', { className: 'page' },
       el('div', { className: 'page-head' },
-        el('h2', {}, el('a', { href: page.urlKey, target: '_blank', rel: 'noopener', textContent: page.title || page.urlKey }),
-          el('span', { className: 'host' }, host)),
+        el('div', { className: 'page-title' },
+          el('h2', {}, el('a', { href: page.urlKey, target: '_blank', rel: 'noopener', textContent: page.title || page.urlKey })),
+          el('span', { className: 'host', textContent: `${host} · ${hs.length} thread${hs.length === 1 ? '' : 's'}` })),
         copyBtn),
-      ...hs.map((h) => item(h, page))));
+      el('div', { className: 'cards' }, ...hs.map((h) => item(h, page)))));
   }
   $('list').replaceChildren(...(sections.length ? sections
     : [el('div', { className: 'empty' }, el('b', { textContent: total ? 'No threads match' : 'No comments yet' }), total ? 'Try another word, or switch the filter.' : 'Select text on any page to start a comment thread.')]));
