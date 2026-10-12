@@ -37,16 +37,11 @@ async function copy(btn, text) {
 // One thread as a card, like the side panel's: yellow spine while open, green once resolved.
 const day = (ts) => new Date(ts).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 function item(h, page) {
-  const lastQ = h.messages.filter((m) => m.role === 'user').at(-1);
   const n = h.messages.length, last = h.messages.at(-1)?.ts || h.createdAt;
   const resolved = h.status === 'resolved';
   return el('article', { className: 'card' + (resolved ? ' done' : '') },
     el('a', { className: 'passage', href: MarginNotes.fragmentUrl(page.urlKey, h.exact), target: '_blank', rel: 'noopener',
       title: 'Open this passage on its page', textContent: h.exact }),
-    h.takeaway ? el('p', { className: 'learned', textContent: h.takeaway })
-      : lastQ && el('p', { className: 'ask' }, el('span', { className: 'who', textContent: 'You asked' }), lastQ.content),
-    h.concepts?.length && el('div', { className: 'chips' }, ...h.concepts.map((c) =>
-      el('button', { className: 'chip', textContent: c, title: `Show threads about ${c}`, onclick: () => showConcept(norm(c)) }))),
     el('div', { className: 'meta-line', textContent: `${n ? `${n} comment${n === 1 ? '' : 's'}` : 'No comments yet'} · ${day(last)}` }));
 }
 

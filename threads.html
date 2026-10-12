@@ -25,9 +25,9 @@
   #concept:empty { display: none; }
 
   /* Each page is a neutral card holding its status-coloured thread cards; a thin bar shows how far it's resolved. */
-  section.page { margin-top: 16px; padding: 14px 14px 14px; border-radius: 14px; background: var(--bg-soft); box-shadow: inset 0 0 0 1px var(--line); }
-  #list > section.page:first-child { margin-top: 20px; }
-  .page-head { display: flex; gap: 8px; align-items: flex-start; margin: 0 0 12px 2px; }
+  section.page { margin-top: 24px; padding: 18px 18px 18px; border-radius: 14px; background: var(--bg-soft); box-shadow: inset 0 0 0 1px var(--line); }
+  #list > section.page:first-child { margin-top: 28px; }
+  .page-head { display: flex; gap: 8px; align-items: flex-start; margin: 0 0 16px 2px; }
   .page-title { flex: 1; min-width: 0; }
   .page-head h2 { font: 600 17px/1.35 var(--serif); letter-spacing: -.01em; margin: 0;
     display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
@@ -39,8 +39,8 @@
   .icon-btn.copied { color: var(--done); }
 
   /* Thread cards: the side panel's, with room for the takeaway or open question */
-  .cards { display: grid; gap: 8px; }
-  .card { --c: var(--open); --tint: var(--open-tint); border-radius: 10px; background: var(--tint); padding: 11px 14px 10px 17px;
+  .cards { display: grid; gap: 10px; }
+  .card { --c: var(--open); --tint: var(--open-tint); border-radius: 10px; background: var(--tint); padding: 13px 16px 12px 19px;
     box-shadow: inset 3px 0 0 var(--c), inset 0 0 0 1px color-mix(in srgb, var(--c) 22%, transparent);
     transition: transform .15s ease, box-shadow .15s ease; }
   .card.done { --c: var(--done); --tint: var(--done-tint); }
@@ -48,11 +48,7 @@
   .card .passage { display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden;
     font-size: 14px; line-height: 1.55; text-decoration: none; }
   .card .passage:hover { text-decoration: underline; text-decoration-color: var(--faint); }
-  .card .learned { font: 15px/1.5 var(--serif); margin: 8px 0 0; }
-  .card .ask { font-size: 13.5px; color: var(--soft); margin: 8px 0 0; }
-  .card .ask .who { font-size: 12px; font-weight: 600; color: var(--faint); margin-right: 6px; }
-  .card .meta-line { font-size: 11.5px; color: var(--faint); margin-top: 8px; }
-  .chips { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 8px; }
+  .card .meta-line { font-size: 11.5px; color: var(--faint); margin-top: 6px; }
   .chip { font-size: 12px; line-height: 18px; padding: 1px 8px; border-radius: 10px; color: var(--soft);
     background: color-mix(in srgb, var(--bg) 70%, transparent); box-shadow: inset 0 0 0 1px var(--line); }
   .chip:hover { color: var(--ink); box-shadow: inset 0 0 0 1px var(--soft); }
@@ -74,7 +70,7 @@
   .graph line.lit { stroke: var(--soft); }
   .graph-note { color: var(--faint); font-size: 12px; margin: 0; padding: 10px 14px; border-top: 1px solid var(--line); }
   @media (prefers-reduced-motion: reduce) { .card { transition: none; } .card:hover { transform: none; } }
-  @media (max-width: 520px) { .wrap { padding: 24px 16px 64px; } section.page { padding: 12px 10px; } .bar-tools { margin: 16px -16px 0; padding: 10px 16px; } h1 { font-size: 26px; } }
+  @media (max-width: 520px) { .wrap { padding: 24px 16px 64px; } section.page { padding: 14px 12px; } .bar-tools { margin: 16px -16px 0; padding: 10px 16px; } h1 { font-size: 26px; } }
 </style>
 <div class="wrap">
   <h1>All threads</h1>
