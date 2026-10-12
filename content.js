@@ -194,6 +194,18 @@
     return (n.nodeType === 1 ? n : n.parentElement || document.body).closest('p,li,blockquote,pre,td,dd,figcaption,h1,h2,h3,h4,h5,h6,div') || document.body;
   }
 
+  // On pages that scroll an inner element (LinkedIn's main), a highlight scrolled out of that element
+  // must not leave its icon floating over the page's header.
+  function outOfScroller(r, rect) {
+    for (let el = r.startContainer.parentElement; el && el !== document.body; el = el.parentElement) {
+      if (el.scrollHeight > el.clientHeight && /auto|scroll|hidden/.test(getComputedStyle(el).overflowY)) {
+        const b = el.getBoundingClientRect();
+        return rect.bottom < b.top || rect.top > b.bottom;
+      }
+    }
+    return false;
+  }
+
   function layout() {
     if (!ranges.size && !root) return;
     ensureRoot();
@@ -206,7 +218,7 @@
     for (const h of highlights) {
       const r = ranges.get(h.id);
       const rect = r?.getClientRects()[0];
-      if (!rect || h.id === open?.id) continue;
+      if (!rect || h.id === open?.id || outOfScroller(r, rect)) continue;
       const x = Math.min(blockOf(r).getBoundingClientRect().right + 16, maxX) + scrollX;
       let y = rect.top + scrollY - 2;
       while (taken.some((t) => Math.abs(t - y) < 26)) y += 26;
@@ -530,6 +542,13 @@
 
   let resizeTimer;
   addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(layout, 150); });
+  // Window scroll moves our absolutely-placed icons with the page; an inner scroller doesn't. Scroll events
+  // don't bubble, so catch them in the capture phase.
+  let scrollFrame = 0;
+  addEventListener('scroll', (e) => {
+    if (e.target === document || scrollFrame || !ranges.size) return;
+    scrollFrame = requestAnimationFrame(() => { scrollFrame = 0; layout(); });
+  }, { capture: true, passive: true });
 
   // Storage is the source of truth: writes from the side panel or background flow back here.
   chrome.storage.onChanged.addListener((changes, area) => {
@@ -557,8 +576,9 @@
     if (sender.id !== chrome.runtime.id) return;
     if (msg.type === 'page.extract') sendResponse(extractArticle());
     if (msg.type === 'highlight.scroll') {  // side panel picked a thread
-      const rect = ranges.get(msg.id)?.getBoundingClientRect();
-      if (rect) scrollTo({ top: rect.top + scrollY - innerHeight / 3, behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+      // scrollIntoView scrolls whichever element holds the passage, window or inner scroller.
+      const el = ranges.get(msg.id)?.startContainer.parentElement;
+      el?.scrollIntoView({ block: 'center', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
       if (ranges.has(msg.id)) openCard({ id: msg.id });
     }
   });

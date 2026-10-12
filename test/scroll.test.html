@@ -1,0 +1,56 @@
+<!doctype html>
+<!-- Icons follow a highlight inside an inner scroller (LinkedIn's main#workspace).
+     Run in a visible Chrome tab: python3 -m http.server 8000 --bind 127.0.0.1, open http://127.0.0.1:8000/test/scroll.test.html.
+     Headless dump-dom can't run it: scroll events need rendered frames. -->
+<meta charset="utf-8">
+<title>scroll test</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; }
+  header { height: 50px; background: #ddd; }
+  main { height: 400px; overflow-y: auto; width: 500px; }
+  .spacer { height: 300px; }
+</style>
+<body>
+<header>fixed header</header>
+<main id="workspace">
+  <div class="spacer"></div>
+  <p>The highlighted claim lives in the feed and scrolls with it.</p>
+  <div class="spacer"></div><div class="spacer"></div><div class="spacer"></div>
+</main>
+<pre id="result">RUNNING</pre>
+<script>
+// Open the closed shadow root so the test can read icon positions.
+const attach = Element.prototype.attachShadow;
+Element.prototype.attachShadow = function (o) { return (window.__shadow = attach.call(this, { ...o, mode: 'open' })); };
+const highlight = { id: 'h', exact: 'highlighted claim', prefix: 'The ', suffix: ' lives in', start: -1, end: -1, messages: [], status: 'open' };
+window.chrome = {
+  runtime: { id: 'test', sendMessage: async (m) => (m.type === 'page.load' ? { urlKey: 'k', highlights: [highlight] } : {}), onMessage: { addListener() {} } },
+  storage: { local: { get: async () => ({}) }, session: { get: async () => ({}) }, onChanged: { addListener() {} } },
+};
+</script>
+<script src="../settings.js"></script>
+<script src="../anchor.js"></script>
+<script src="../content.js"></script>
+<script>
+window.onerror = (m) => { document.getElementById('result').textContent = 'FAIL error: ' + m; };
+window.onunhandledrejection = (e) => { document.getElementById('result').textContent = 'FAIL rejection: ' + e.reason; };
+(async () => {
+  const out = document.getElementById('result'), fails = [];
+  const frame = () => new Promise((r) => setTimeout(r, 50));
+  const icon = () => window.__shadow?.querySelector('.icon');
+  const main = document.getElementById('workspace');
+  const target = () => main.querySelector('p').getBoundingClientRect().top;
+  for (let i = 0; i < 50 && !icon(); i++) await frame();
+  if (!icon()) fails.push('no icon rendered');
+  else {
+    const offset = () => icon().getBoundingClientRect().top - target();
+    const before = offset();
+    main.scrollTop = 150; await frame();
+    if (Math.abs(offset() - before) > 1) fails.push(`icon drifted ${offset() - before}px after inner scroll`);
+    main.scrollTop = 1000; await frame();
+    if (icon()) fails.push('icon still shown after its passage scrolled out of the scroller');
+  }
+  out.textContent = fails.length ? 'FAIL\n' + fails.join('\n') : 'PASS icon follows inner scroll and hides when scrolled out';
+})();
+</script>
+</body>
