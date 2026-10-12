@@ -111,7 +111,26 @@ function header() {
     !page?.summary && el('button', { textContent: busy ? 'Summarising…' : 'Summarise page', disabled: busy, onclick: summarise }),
     (hs.length || page?.summary) && el('button', { textContent: 'Copy as notes', onclick: (e) => copyNotes(e.target) }),
   ] : []).filter(Boolean),
-  el('button', { textContent: 'All threads', onclick: () => chrome.tabs.create({ url: chrome.runtime.getURL('threads.html') }) }));
+  el('button', { textContent: 'All threads', onclick: () => chrome.tabs.create({ url: chrome.runtime.getURL('threads.html') }) }),
+  el('button', { textContent: 'Settings', onclick: () => chrome.runtime.openOptionsPage() }));
+}
+
+// Bottom of the list: wipe this page's summary, highlights and threads, with an inline confirm.
+let confirmPageDelete = false;
+function pageDelete() {
+  if (!page) return null;
+  if (!confirmPageDelete) {
+    return el('div', { className: 'row' }, el('span', { className: 'spacer' }),
+      el('button', { className: 'danger', textContent: 'Delete all data for this page', onclick: () => { confirmPageDelete = true; render(); } }));
+  }
+  return el('div', { className: 'row' },
+    el('span', {}, 'Delete the summary and every thread on this page?'),
+    el('span', { className: 'spacer' }),
+    el('button', { textContent: 'Keep', onclick: () => { confirmPageDelete = false; render(); } }),
+    el('button', { className: 'danger', textContent: 'Delete', onclick: () => {
+      confirmPageDelete = false;
+      bg({ type: 'page.delete', urlKey });
+    } }));
 }
 
 function messageView(m) {
@@ -272,6 +291,7 @@ function render() {
     summaryCard(),
     ...hs.map(card),
     !hs.length && el('p', { className: 'empty' }, 'Select text on the page and click Ask to start a thread.'),
+    pageDelete(),
   ].filter(Boolean));
 
   const ta = document.querySelector('.card.active textarea');

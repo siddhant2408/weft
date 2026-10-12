@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Margin · Settings</title>
+<style>
+  :root {
+    --bg: #fafaf7; --card: #fff; --ink: #1f1f1f; --muted: #6b6b6b; --line: #e6e4dc;
+    --hl: #fff1a8; --hl-strong: #ffd84d; --accent: #8a6d00; --ok: #1e7a3c; --err: #b3261e; --err-bg: #fdecea;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #1b1b19; --card: #252522; --ink: #ecebe6; --muted: #a3a29b; --line: #3a3934;
+      --hl: #4a4220; --hl-strong: #6b5d1f; --accent: #e8c84a; --ok: #7ad69a; --err: #ffb4ab; --err-bg: #3c1f1c; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.5 system-ui, sans-serif; }
+  .wrap { max-width: 680px; margin: 0 auto; padding: 24px 16px 64px; }
+  h1 { font-size: 20px; margin: 0 0 20px; }
+  section { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 16px; margin-bottom: 16px; }
+  h2 { font-size: 15px; margin: 0 0 4px; }
+  p.help { color: var(--muted); margin: 0 0 12px; font-size: 13px; }
+  textarea { width: 100%; min-height: 220px; font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--ink);
+    background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; resize: vertical; }
+  textarea:focus { outline: 2px solid var(--hl-strong); outline-offset: -1px; }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 10px; }
+  .spacer { flex: 1; }
+  button { font: inherit; font-size: 13px; padding: 6px 12px; border-radius: 6px; border: 1px solid var(--line);
+    background: var(--card); color: var(--ink); cursor: pointer; }
+  button.primary { background: var(--hl-strong); border-color: var(--hl-strong); color: #1f1f1f; font-weight: 600; }
+  button.danger { color: var(--err); }
+  button:disabled { opacity: .5; cursor: default; }
+  button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .status { font-size: 13px; color: var(--muted); }
+  .status.ok { color: var(--ok); } .status.err { color: var(--err); }
+  .error { background: var(--err-bg); color: var(--err); padding: 8px 10px; border-radius: 6px; margin-top: 10px; font-size: 13px; }
+  a { color: var(--accent); }
+  code { font-size: 12px; background: var(--bg); padding: 1px 4px; border-radius: 4px; }
+</style>
+<div class="wrap">
+  <h1>Margin settings</h1>
+
+  <section aria-labelledby="h-conn">
+    <h2 id="h-conn">Claude connection</h2>
+    <p class="help">Margin asks Claude through Claude Code on this Mac (your Claude subscription), with all of its tools turned off.</p>
+    <div class="row">
+      <button id="test">Test connection</button>
+      <span class="status" id="conn" role="status"></span>
+    </div>
+    <div id="conn-err"></div>
+  </section>
+
+  <section aria-labelledby="h-ex">
+    <h2 id="h-ex">Excluded sites</h2>
+    <p class="help">Margin does nothing on these sites: no Ask button, no highlights, nothing sent to Claude. One domain per line; subdomains are included. Changes apply when you next load a page.</p>
+    <textarea id="excluded" spellcheck="false" aria-label="Excluded sites, one per line"></textarea>
+    <div class="row">
+      <button id="reset">Reset to defaults</button>
+      <span class="spacer"></span>
+      <span class="status" id="ex-status" role="status"></span>
+      <button class="primary" id="save">Save</button>
+    </div>
+  </section>
+
+  <section aria-labelledby="h-data">
+    <h2 id="h-data">Your data</h2>
+    <p class="help">Everything is stored only in this Chrome profile. Uninstalling Margin deletes it, so export first. <span id="counts"></span></p>
+    <div class="row">
+      <button id="export">Export JSON</button>
+      <a href="threads.html">All threads</a>
+      <span class="spacer"></span>
+      <span id="del"></span>
+    </div>
+  </section>
+</div>
+<script src="settings.js"></script>
+<script src="options.js"></script>
+</html>

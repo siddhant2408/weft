@@ -223,6 +223,24 @@ const handlers = {
     return res.ok ? { draft: res.text.trim().split('\n')[0] } : fail(res.code, res.detail);
   },
 
+  'page.delete': async (msg) => {
+    await updatePage(msg.urlKey, () => ({}));  // wait for queued writes so none resurrects the page
+    await chrome.storage.local.remove('page:' + msg.urlKey);
+    return { ok: true };
+  },
+
+  'data.deleteAll': async () => {
+    const keys = Object.keys(await chrome.storage.local.get(null)).filter((k) => k.startsWith('page:'));
+    await chrome.storage.local.remove(keys);
+    return { ok: true, deleted: keys.length };
+  },
+
+  'host.check': async () => {
+    const t0 = Date.now();
+    const res = await askHost({ system: 'Reply tersely.', prompt: 'Reply with exactly: ok' });
+    return res.ok ? { ok: true, ms: Date.now() - t0 } : fail(res.code, res.detail);
+  },
+
   'thread.reopen': (msg) => updateThread(msg.urlKey, msg.id, (h) => { h.status = 'open'; }),
 };
 

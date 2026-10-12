@@ -1,9 +1,8 @@
 // Selection → Ask pill → saved highlight; repaint on load and SPA navigation; margin icons open threads.
-(() => {
-  // Content script stays inert here (spec T5). ponytail: hardcoded until the settings page exists.
-  const EXCLUDED = ['mail.google.com', 'outlook.live.com', 'outlook.office.com', 'web.whatsapp.com', 'app.slack.com'];
-  const host0 = location.hostname;
-  if (EXCLUDED.some((h) => host0 === h || host0.endsWith('.' + h))) return;
+(async () => {
+  // Excluded sites: stay fully inert (spec T5). A change applies on the next page load.
+  const { excluded } = await MarginSettings.get();
+  if (MarginSettings.isExcluded(location.hostname, excluded)) return;
 
   const A = MarginAnchor;
   const reg = new Highlight(), regActive = new Highlight();
