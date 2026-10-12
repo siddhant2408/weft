@@ -30,6 +30,8 @@ var MarginNotes = (() => {
     if (page.summary) parts.push('## Summary\n\n' + page.summary.text);
     const hs = [...highlights].sort((a, b) => a.start - b.start);
     if (hs.length) parts.push('## Threads\n\n' + hs.map((h) => threadMarkdown(h, url)).join('\n\n'));
+    const qa = page.qa?.messages || [];
+    if (qa.length) parts.push('## Questions about the page\n\n' + qa.map((m) => (m.role === 'assistant' ? m.content : `**${m.role === 'note' ? 'Note' : 'Q'}:** ${m.content}`)).join('\n\n'));
     return parts.join('\n\n') + '\n';
   }
 

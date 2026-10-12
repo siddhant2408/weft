@@ -1,0 +1,90 @@
+/* Shared look for extension pages (side panel, All threads, Settings). Mirrors the in-page comment card. */
+:root {
+  --bg: #fff; --bg-soft: #f7f7f5; --ink: #37352f; --soft: rgba(55,53,47,.65); --faint: rgba(55,53,47,.45);
+  --line: rgba(55,53,47,.09); --hover: rgba(55,53,47,.06); --press: rgba(55,53,47,.12);
+  --blue: #2383e2; --red: #eb5757; --green: #0f7b6c;
+  --hl-bg: rgba(255,212,0,.16); --hl-line: #f5c400; --ai: #f5c400; --ai-ink: #3a2e00;
+  --shadow: 0 0 0 1px rgba(15,15,15,.05), 0 3px 6px rgba(15,15,15,.1), 0 9px 24px rgba(15,15,15,.2);
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, "Apple Color Emoji", Arial, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #191919; --bg-soft: #202020; --ink: rgba(255,255,255,.81); --soft: rgba(255,255,255,.55); --faint: rgba(255,255,255,.38);
+    --line: rgba(255,255,255,.09); --hover: rgba(255,255,255,.055); --press: rgba(255,255,255,.1);
+    --blue: #529cca; --red: #ff7369; --green: #4dab9a; --hl-bg: rgba(255,212,0,.14);
+    --shadow: 0 0 0 1px rgba(255,255,255,.07), 0 3px 6px rgba(0,0,0,.25), 0 9px 24px rgba(0,0,0,.45); }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.5 var(--font); -webkit-font-smoothing: antialiased; }
+a { color: inherit; text-underline-offset: 2px; text-decoration-color: var(--faint); }
+a:hover { text-decoration-color: currentColor; }
+[hidden] { display: none !important; }
+.muted { color: var(--soft); } .faint { color: var(--faint); }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+:focus-visible { outline: 2px solid var(--blue); outline-offset: 1px; border-radius: 4px; }
+
+/* The signature: a quote looks exactly like its highlight on the page. */
+.hl { background: var(--hl-bg); box-shadow: inset 0 -2px 0 var(--hl-line); -webkit-box-decoration-break: clone; box-decoration-break: clone; padding: 0 1px; }
+
+/* Buttons: Notion's quiet text buttons; one blue primary per view. */
+button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+.btn { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; line-height: 20px; padding: 3px 9px; border-radius: 6px;
+  box-shadow: inset 0 0 0 1px var(--line); white-space: nowrap; text-decoration: none; }
+.btn:hover { background: var(--hover); } .btn:active { background: var(--press); }
+.btn.plain { box-shadow: none; color: var(--soft); } .btn.plain:hover { color: var(--ink); }
+.btn.primary { background: var(--blue); color: #fff; box-shadow: none; } .btn.primary:hover { filter: brightness(1.06); }
+.btn.danger { color: var(--red); }
+.btn:disabled, .icon-btn:disabled { opacity: .45; cursor: default; background: none; }
+.icon-btn { width: 28px; height: 28px; display: inline-grid; place-items: center; border-radius: 6px; color: var(--faint); flex: none; }
+.icon-btn:hover { background: var(--hover); color: var(--ink); }
+.icon-btn[aria-pressed="true"] { background: var(--hover); color: var(--ink); }
+svg { width: 16px; height: 16px; display: block; }
+
+/* Fields */
+input[type=text], input[type=search], input[type=password], input:not([type]), select, textarea.field {
+  font: inherit; font-size: 14px; color: var(--ink); background: var(--bg-soft); border: 0; border-radius: 6px;
+  box-shadow: inset 0 0 0 1px var(--line); padding: 5px 9px; width: 100%; }
+input:focus, select:focus, textarea.field:focus { outline: 0; box-shadow: inset 0 0 0 1px var(--blue), 0 0 0 3px color-mix(in srgb, var(--blue) 25%, transparent); }
+::placeholder { color: var(--faint); }
+
+/* Segmented filter */
+.seg { display: inline-flex; padding: 2px; border-radius: 7px; background: var(--hover); gap: 2px; }
+.seg button { font-size: 13px; padding: 2px 9px; border-radius: 5px; color: var(--soft); }
+.seg button[aria-pressed="true"] { background: var(--bg); color: var(--ink); box-shadow: 0 1px 2px rgba(15,15,15,.12); }
+.seg .n { color: var(--faint); margin-left: 4px; font-variant-numeric: tabular-nums; }
+
+/* Comment messages, same as the in-page card */
+.msg { display: grid; grid-template-columns: 22px 1fr; column-gap: 8px; padding: 5px 0; }
+.av { width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; font-size: 11px; font-weight: 600;
+  background: var(--press); color: var(--soft); margin-top: 1px; }
+.av.ai { background: var(--ai); color: var(--ai-ink); }
+.meta { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+.name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.time, .tag { font-size: 12px; color: var(--faint); white-space: nowrap; }
+.body { grid-column: 2; overflow-wrap: anywhere; }
+.body p { margin: 2px 0 6px; } .body p:last-child { margin-bottom: 0; }
+.body ul, .body ol { margin: 2px 0 6px; padding-left: 20px; }
+.body pre { overflow-x: auto; background: var(--hover); padding: 6px 8px; border-radius: 6px; font: 12.5px/1.5 var(--mono); }
+.body code { background: var(--hover); border-radius: 4px; padding: 0 3px; font: 12.5px var(--mono); }
+.msg.note .body { color: var(--soft); }
+.caret { display: inline-block; width: 7px; height: 14px; margin-left: 2px; background: var(--soft); vertical-align: -2px; animation: blink 1s steps(2) infinite; }
+@keyframes blink { 50% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .caret { animation: none; } * { scroll-behavior: auto !important; } }
+.thinking { color: var(--faint); }
+
+/* Composer pill */
+.composer { display: flex; align-items: flex-end; gap: 2px; padding: 5px 5px 5px 12px; border-radius: 10px; box-shadow: inset 0 0 0 1px var(--line); background: var(--bg); }
+.composer:focus-within { box-shadow: inset 0 0 0 1px var(--soft); }
+.composer textarea { flex: 1; border: 0; outline: 0; resize: none; background: none; font: inherit; color: inherit;
+  line-height: 22px; height: 26px; max-height: 160px; padding: 2px 0; }
+.composer .send { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; flex: none; background: var(--faint); color: var(--bg); }
+.composer .send.ready { background: var(--blue); color: #fff; }
+
+.takeaway { padding: 8px 10px; border-radius: 8px; background: var(--hl-bg); border-left: 3px solid var(--hl-line); }
+.takeaway b { display: block; font-size: 12px; color: var(--soft); font-weight: 600; margin-bottom: 2px; }
+.error { color: var(--red); font-size: 13px; }
+.badge { font-size: 12px; color: var(--faint); }
+.badge.warn { color: var(--red); }
+.empty { color: var(--faint); text-align: center; padding: 40px 16px; }
+.empty b { display: block; color: var(--soft); font-weight: 600; margin-bottom: 4px; }

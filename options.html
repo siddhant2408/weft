@@ -3,67 +3,51 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Margin · Settings</title>
+<link rel="stylesheet" href="ui.css">
 <style>
-  :root {
-    --bg: #fafaf7; --card: #fff; --ink: #1f1f1f; --muted: #6b6b6b; --line: #e6e4dc;
-    --hl: #fff1a8; --hl-strong: #ffd84d; --accent: #8a6d00; --ok: #1e7a3c; --err: #b3261e; --err-bg: #fdecea;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root { --bg: #1b1b19; --card: #252522; --ink: #ecebe6; --muted: #a3a29b; --line: #3a3934;
-      --hl: #4a4220; --hl-strong: #6b5d1f; --accent: #e8c84a; --ok: #7ad69a; --err: #ffb4ab; --err-bg: #3c1f1c; }
-  }
-  * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.5 system-ui, sans-serif; }
-  .wrap { max-width: 680px; margin: 0 auto; padding: 24px 16px 64px; }
-  h1 { font-size: 20px; margin: 0 0 20px; }
-  section { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 16px; margin-bottom: 16px; }
-  h2 { font-size: 15px; margin: 0 0 4px; }
-  p.help { color: var(--muted); margin: 0 0 12px; font-size: 13px; }
-  textarea { width: 100%; min-height: 220px; font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--ink);
-    background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; resize: vertical; }
-  textarea:focus { outline: 2px solid var(--hl-strong); outline-offset: -1px; }
-  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 10px; }
-  .spacer { flex: 1; }
-  button { font: inherit; font-size: 13px; padding: 6px 12px; border-radius: 6px; border: 1px solid var(--line);
-    background: var(--card); color: var(--ink); cursor: pointer; }
-  button.primary { background: var(--hl-strong); border-color: var(--hl-strong); color: #1f1f1f; font-weight: 600; }
-  button.danger { color: var(--err); }
-  button:disabled { opacity: .5; cursor: default; }
-  button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-  .status { font-size: 13px; color: var(--muted); }
-  .status.ok { color: var(--ok); } .status.err { color: var(--err); }
-  .error { background: var(--err-bg); color: var(--err); padding: 8px 10px; border-radius: 6px; margin-top: 10px; font-size: 13px; }
-  a { color: var(--accent); }
-  fieldset.choices { border: 0; padding: 0; margin: 0 0 12px; display: grid; gap: 6px; }
-  fieldset.choices label { display: block; cursor: pointer; }
-  .muted { color: var(--muted); font-size: 13px; }
-  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
-  .fields { display: grid; gap: 10px; margin: 4px 0 12px; padding: 12px; border: 1px solid var(--line); border-radius: 8px; }
-  .fields[hidden] { display: none; }
-  .fields label { display: grid; gap: 4px; font-size: 13px; font-weight: 600; }
-  .fields input, .fields select { font: 13px system-ui, sans-serif; padding: 6px 8px; border-radius: 6px; border: 1px solid var(--line);
-    background: var(--bg); color: var(--ink); width: 100%; }
-  .fields input:focus, .fields select:focus { outline: 2px solid var(--hl-strong); outline-offset: -1px; }
+  .wrap { max-width: 680px; margin: 0 auto; padding: 48px 24px 80px; }
+  h1 { font-size: 30px; font-weight: 700; letter-spacing: -.01em; margin: 0 0 28px; }
+  section { padding: 0 0 28px; margin-bottom: 28px; border-bottom: 1px solid var(--line); }
+  section:last-child { border-bottom: 0; }
+  h2 { font-size: 18px; font-weight: 600; margin: 0 0 4px; }
+  p.help { color: var(--soft); margin: 0 0 14px; font-size: 14px; }
+  p.small { font-size: 12px; color: var(--faint); }
+  fieldset.choices { border: 0; padding: 0; margin: 0 0 12px; display: grid; gap: 4px; }
+  fieldset.choices label { display: flex; gap: 10px; align-items: baseline; padding: 8px 10px; border-radius: 8px; cursor: pointer; }
+  fieldset.choices label:hover { background: var(--bg-soft); }
+  fieldset.choices label:has(input:checked) { background: var(--hover); }
+  fieldset.choices input { accent-color: var(--blue); margin: 0; transform: translateY(1px); }
+  fieldset.choices .muted { display: block; font-size: 13px; }
+  .fields { display: grid; gap: 12px; margin: 4px 0 14px; padding: 14px; border-radius: 10px; background: var(--bg-soft); }
+  .fields label { display: grid; gap: 4px; font-size: 13px; font-weight: 500; color: var(--soft); }
+  .fields input, .fields select { background: var(--bg); }
   .with-btn { display: flex; gap: 6px; } .with-btn input { flex: 1; }
-  p.small { font-size: 12px; }
-  code { font-size: 12px; background: var(--bg); padding: 1px 4px; border-radius: 4px; }
+  textarea#excluded { width: 100%; min-height: 200px; font: 13px/1.6 var(--mono); color: var(--ink); background: var(--bg-soft);
+    border: 0; border-radius: 8px; box-shadow: inset 0 0 0 1px var(--line); padding: 10px 12px; resize: vertical; }
+  textarea#excluded:focus { outline: 0; box-shadow: inset 0 0 0 1px var(--blue), 0 0 0 3px color-mix(in srgb, var(--blue) 25%, transparent); }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 12px; }
+  .spacer { flex: 1; }
+  .status { font-size: 13px; color: var(--soft); }
+  .status.ok { color: var(--green); } .status.err { color: var(--red); }
+  .error { margin-top: 10px; }
+  @media (max-width: 520px) { .wrap { padding: 28px 16px 64px; } h1 { font-size: 24px; } }
 </style>
 <div class="wrap">
   <h1>Margin settings</h1>
 
   <section aria-labelledby="h-model">
     <h2 id="h-model">Model</h2>
-    <p class="help">Who answers your questions. Nothing is sent anywhere until you click Ask or Summarise.</p>
+    <p class="help">Who replies to your comments. Nothing is sent anywhere until you send a comment or click Summarise.</p>
     <fieldset class="choices">
       <legend class="sr">Provider</legend>
-      <label><input type="radio" name="provider" value="cli"> <b>Claude Code on this Mac</b> <span class="muted">· your Claude subscription, tools turned off. Replies arrive all at once.</span></label>
-      <label><input type="radio" name="provider" value="anthropic"> <b>Anthropic API key</b> <span class="muted">· pay per use, replies stream in</span></label>
-      <label><input type="radio" name="provider" value="openai"> <b>OpenRouter, OpenAI, or another OpenAI-compatible API</b> <span class="muted">· any model, replies stream in</span></label>
+      <label><input type="radio" name="provider" value="cli"> <span><b>Claude Code on this Mac</b> <span class="muted">Uses your Claude subscription, with its tools turned off. Replies arrive all at once.</span></span></label>
+      <label><input type="radio" name="provider" value="anthropic"> <span><b>Anthropic API key</b> <span class="muted">Pay per use. Replies stream in.</span></span></label>
+      <label><input type="radio" name="provider" value="openai"> <span><b>OpenRouter, OpenAI, or another OpenAI-compatible API</b> <span class="muted">Any model. Replies stream in.</span></span></label>
     </fieldset>
 
     <div class="fields" data-for="anthropic">
       <label>API key <input type="password" id="a-key" autocomplete="off" placeholder="sk-ant-…"></label>
-      <label>Model <span class="with-btn"><input id="a-model" list="a-models" placeholder="claude-opus-5-5"><button type="button" id="a-load">Load models</button></span></label>
+      <label>Model <span class="with-btn"><input id="a-model" list="a-models" placeholder="claude-opus-5-5"><button type="button" class="btn" id="a-load">Load models</button></span></label>
       <datalist id="a-models"></datalist>
     </div>
 
@@ -77,29 +61,29 @@
       </label>
       <label>Base URL <input id="o-base" placeholder="https://openrouter.ai/api/v1" spellcheck="false"></label>
       <label>API key <input type="password" id="o-key" autocomplete="off" placeholder="Leave empty for local servers"></label>
-      <label>Model <span class="with-btn"><input id="o-model" list="o-models" placeholder="e.g. anthropic/… or gpt-…" spellcheck="false"><button type="button" id="o-load">Load models</button></span></label>
+      <label>Model <span class="with-btn"><input id="o-model" list="o-models" placeholder="e.g. anthropic/… or gpt-…" spellcheck="false"><button type="button" class="btn" id="o-load">Load models</button></span></label>
       <datalist id="o-models"></datalist>
     </div>
 
     <p class="help small">API keys are stored in this Chrome profile's extension storage and sent only to the provider you choose.</p>
     <div class="row">
-      <button id="test">Test connection</button>
+      <button class="btn" id="test">Test connection</button>
       <span class="status" id="conn" role="status"></span>
       <span class="spacer"></span>
-      <button class="primary" id="m-save">Save</button>
+      <button class="btn primary" id="m-save">Save</button>
     </div>
     <div id="conn-err"></div>
   </section>
 
   <section aria-labelledby="h-ex">
     <h2 id="h-ex">Excluded sites</h2>
-    <p class="help">Margin does nothing on these sites: no Ask button, no highlights, nothing sent to Claude. One domain per line; subdomains are included. Changes apply when you next load a page.</p>
+    <p class="help">Margin does nothing on these sites: no comment box, no highlights, nothing sent to a model. One domain per line; subdomains are included. Changes apply when you next load a page.</p>
     <textarea id="excluded" spellcheck="false" aria-label="Excluded sites, one per line"></textarea>
     <div class="row">
-      <button id="reset">Reset to defaults</button>
+      <button class="btn plain" id="reset">Reset to defaults</button>
       <span class="spacer"></span>
       <span class="status" id="ex-status" role="status"></span>
-      <button class="primary" id="save">Save</button>
+      <button class="btn primary" id="save">Save</button>
     </div>
   </section>
 
@@ -107,8 +91,8 @@
     <h2 id="h-data">Your data</h2>
     <p class="help">Everything is stored only in this Chrome profile. Uninstalling Margin deletes it, so export first. <span id="counts"></span></p>
     <div class="row">
-      <button id="export">Export JSON</button>
-      <a href="threads.html">All threads</a>
+      <button class="btn" id="export">Export JSON</button>
+      <a class="btn plain" href="threads.html">All threads</a>
       <span class="spacer"></span>
       <span id="del"></span>
     </div>

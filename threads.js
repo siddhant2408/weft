@@ -3,7 +3,7 @@ let pages = [], filter = 'all', query = '';
 const $ = (id) => document.getElementById(id);
 const el = (tag, props = {}, ...kids) => {
   const n = Object.assign(document.createElement(tag), props);
-  n.append(...kids.filter((k) => k != null && k !== false));
+  n.append(...kids.filter((k) => k != null && k !== false && k !== ''));
   return n;
 };
 
@@ -32,14 +32,16 @@ async function copy(btn, text) {
 function item(h, page) {
   const lastQ = h.messages.filter((m) => m.role === 'user').at(-1);
   const n = h.messages.length;
-  return el('article', { className: 'item' },
-    el('div', { className: 'quote' }, h.exact),
-    h.takeaway ? el('div', { className: 'takeaway' }, h.takeaway)
-      : lastQ && el('div', { className: 'open-q' }, lastQ.content),
+  const resolved = h.status === 'resolved';
+  return el('article', { className: 'item' + (resolved ? ' resolved' : '') },
+    el('p', { className: 'quote' }, el('span', { className: 'hl', textContent: h.exact })),
+    h.takeaway ? el('div', { className: 'takeaway' }, el('b', { textContent: 'Takeaway' }), h.takeaway)
+      : lastQ && el('div', { className: 'msg open-q' }, el('div', { className: 'av', textContent: 'Y', ariaHidden: 'true' }),
+        el('div', { className: 'meta' }, el('span', { className: 'name', textContent: 'You' })), el('div', { className: 'body', textContent: lastQ.content })),
     el('div', { className: 'foot' },
-      el('span', {}, h.status === 'resolved' ? 'resolved' : 'open'),
-      el('span', {}, `${n} message${n === 1 ? '' : 's'}`),
-      el('span', {}, new Date(h.createdAt).toLocaleDateString()),
+      el('span', { textContent: resolved ? 'Resolved' : 'Open' }),
+      el('span', { textContent: `${n} comment${n === 1 ? '' : 's'}` }),
+      el('span', { textContent: new Date(h.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) }),
       el('a', { href: MarginNotes.fragmentUrl(page.urlKey, h.exact), target: '_blank', rel: 'noopener', textContent: 'Open passage ↗' })));
 }
 
@@ -54,7 +56,7 @@ function render() {
     if (!hs.length) continue;
     let host = '';
     try { host = new URL(page.urlKey).hostname.replace(/^www\./, ''); } catch {}
-    const copyBtn = el('button', { textContent: 'Copy as notes' });
+    const copyBtn = el('button', { className: 'btn plain', textContent: 'Copy as notes' });
     copyBtn.addEventListener('click', () => copy(copyBtn, MarginNotes.pageMarkdown(page, hs)));
     sections.push(el('section', { className: 'page' },
       el('div', { className: 'page-head' },
@@ -64,7 +66,7 @@ function render() {
       ...hs.map((h) => item(h, page))));
   }
   $('list').replaceChildren(...(sections.length ? sections
-    : [el('p', { className: 'empty' }, total ? 'No threads match.' : 'No threads yet. Highlight something on a page and click Ask.')]));
+    : [el('div', { className: 'empty' }, el('b', { textContent: total ? 'No threads match' : 'No comments yet' }), total ? 'Try another word, or switch the filter.' : 'Select text on any page to start a comment thread.')]));
 }
 
 $('q').addEventListener('input', (e) => { query = e.target.value.trim().toLowerCase(); render(); });

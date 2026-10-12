@@ -143,7 +143,7 @@ async function renderData() {
 }
 
 function renderDelete(confirming, pageCount) {
-  const b = (text, cls, onclick) => Object.assign(document.createElement('button'), { textContent: text, className: cls, onclick });
+  const b = (text, cls, onclick) => Object.assign(document.createElement('button'), { textContent: text, className: `btn ${cls}`, onclick });
   if (!confirming) {
     const del = b('Delete all data…', 'danger', () => renderDelete(true, pageCount));
     del.disabled = !pageCount;

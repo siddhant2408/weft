@@ -1,5 +1,6 @@
-// Model providers. Every provider takes {system, prompt} and returns {ok, text} | {ok: false, code, detail}.
-// The system prompt (instructions + article) is the stable, cached prefix; prompt is the per-call part.
+// Model providers. Every provider takes {system, notes?, prompt} and returns {ok, text} | {ok: false, code, detail}.
+// system (instructions + article) is the stable, cached prefix; notes (the reader's notes) follow it uncached,
+// because they change as the user reads; prompt is the per-call part.
 // Raw fetch rather than SDKs: the extension has no build step (spec D1).
 //   cli       → Claude Code on this Mac via the native host (subscription, no streaming)
 //   anthropic → Anthropic Messages API with the user's key (streaming, cache_control on the system prompt)
@@ -16,9 +17,11 @@ export const DEFAULT_ANTHROPIC_MODEL = 'claude-opus-5-5';
 // Server-side refusal fallback: only these models accept fallbacks: "default".
 const FALLBACK_MODELS = /^claude-(fable-5-1|opus-5-5|opus-5|sonnet-5-5)$/;
 
-function cli({ system, prompt }) {
+const joined = (system, notes) => (notes ? `${system}\n\n${notes}` : system);
+
+function cli({ system, notes, prompt }) {
   return new Promise((resolve) => {
-    chrome.runtime.sendNativeMessage(HOST, { system, prompt }, (res) => {
+    chrome.runtime.sendNativeMessage(HOST, { system: joined(system, notes), prompt }, (res) => {
       const err = chrome.runtime.lastError;
       if (err) resolve({ ok: false, code: /not found|forbidden/i.test(err.message) ? 'HOST_MISSING' : 'HOST_ERROR', detail: err.message });
       else resolve(res);
@@ -83,7 +86,7 @@ async function streamRequest(url, init, onData, onText) {
   }
 }
 
-function anthropic({ system, prompt }, cfg, onText) {
+function anthropic({ system, notes, prompt }, cfg, onText) {
   const model = cfg.model || DEFAULT_ANTHROPIC_MODEL;
   const headers = {
     'content-type': 'application/json',
@@ -96,7 +99,7 @@ function anthropic({ system, prompt }, cfg, onText) {
     model,
     max_tokens: 16000,
     stream: true,
-    system: [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }],
+    system: [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }, ...(notes ? [{ type: 'text', text: notes }] : [])],
     messages: [{ role: 'user', content: prompt }],
   };
   if (FALLBACK_MODELS.test(model)) {
@@ -113,12 +116,12 @@ function anthropic({ system, prompt }, cfg, onText) {
   }, onText);
 }
 
-function openai({ system, prompt }, cfg, onText) {
+function openai({ system, notes, prompt }, cfg, onText) {
   const base = (cfg.baseUrl || PRESETS.openrouter.baseUrl).replace(/\/+$/, '');
   // Anthropic models via OpenRouter cache only with an explicit breakpoint; other providers cache automatically.
   const systemContent = /openrouter\.ai/.test(base) && /^anthropic\//.test(cfg.model)
-    ? [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }]
-    : system;
+    ? [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }, ...(notes ? [{ type: 'text', text: notes }] : [])]
+    : joined(system, notes);
   const headers = { 'content-type': 'application/json' };
   if (cfg.apiKey) headers.authorization = `Bearer ${cfg.apiKey}`;
   if (/openrouter\.ai/.test(base)) headers['X-Title'] = 'Margin';

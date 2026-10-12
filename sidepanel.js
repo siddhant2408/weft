@@ -1,36 +1,60 @@
-// Comment rail: every thread on the active tab's page, in document order. Storage is the source of truth;
-// this panel re-renders from it and sends writes through the background worker.
-let tabId = null, urlKey = null, page = null, orphans = [], activeId = null;
-const pending = new Set();   // highlight ids waiting on Claude (from storage.session)
-// A worker killed mid-request leaves its flag behind; past the host's 120 s timeout it's stale.
+// The notebook for the active tab's page. The margin (comment cards on the page) holds the conversations;
+// this panel holds what they add up to: the gist, what you've concluded, what's still open, and a thread
+// about the page as a whole. It also shows what the model is told about your reading.
+// Storage is the source of truth; this panel re-renders from it and sends writes through the background worker.
+let tabId = null, urlKey = null, page = null, orphans = [];
+let replier = 'Claude';             // who answers, from settings
+const pending = new Set();          // pending keys waiting on the model (storage.session)
+const streams = {};                 // pending key → partial reply while an API provider streams
+// A worker killed mid-request leaves its flag behind; past the 120 s timeout it's stale.
 const live = (startedAt) => Date.now() - startedAt < 150000;
-const drafts = {};           // id → unsent composer text
-const errors = {};           // id → {code, hint}
-const resolving = {};        // id → {loading} | {text} | {error}
-const confirmDelete = new Set();
-const streams = {};         // pending key → partial reply while an API provider streams
-let replier = 'Claude';      // who answers, from settings
-const changed = {};          // urlKey → page text differs from when the summary was made
-// The summary's in-flight flag is per page; highlight ids are globally unique.
-const pk = (id) => (id === 'summary' ? 'summary:' + urlKey : id);
+const errors = {};                  // 'summary' | 'page' → {code, hint}
+const changed = {};                 // urlKey → page text differs from when the summary was made
+let showFull = false;               // full summary bullets expanded
+let openOrphan = null;              // orphaned thread shown inline (it has no passage to jump to)
+let confirmOrphanDelete = false, confirmPageDelete = false;
+let noteMode = false;               // page composer saves a note instead of asking
+const pk = (id) => (id === 'summary' ? 'summary:' + urlKey : id === 'page' ? 'qa:' + urlKey : id);
 
 const $ = (id) => document.getElementById(id);
 const bg = (msg) => chrome.runtime.sendMessage(msg).catch((e) => ({ error: { code: 'INTERNAL', hint: String(e) } }));
-const el = (tag, props = {}, ...kids) => {
+const kids = (list) => list.filter((k) => k != null && k !== false && k !== '');
+const el = (tag, props = {}, ...children) => {
   const n = Object.assign(document.createElement(tag), props);
-  n.append(...kids.filter((k) => k != null && k !== false));
+  n.append(...kids(children));
   return n;
 };
-const md = (s) => DOMPurify.sanitize(marked.parse(s));  // LLM output is untrusted HTML (spec T4)
+const md = (s) => DOMPurify.sanitize(marked.parse(s));  // model output is untrusted HTML (spec T4)
+const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
+const ICON = {
+  note: '<path d="M10.8 2.7a1.4 1.4 0 0 1 2 2L6 11.5l-2.7.7.7-2.7Z"/>',
+  up: '<path d="M8 12.5v-9m-4 4 4-4 4 4" stroke-width="1.7"/>',
+  spark: '<path d="M8 2.5c.4 2.6 1.4 3.6 4 4-2.6.4-3.6 1.4-4 4-.4-2.6-1.4-3.6-4-4 2.6-.4 3.6-1.4 4-4ZM12.5 10.5c.2 1 .6 1.4 1.5 1.5-1 .2-1.3.6-1.5 1.5-.2-1-.6-1.3-1.5-1.5 1-.1 1.3-.5 1.5-1.5Z"/>',
+  copy: '<rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 5.5V4A1.5 1.5 0 0 0 9 2.5H4A1.5 1.5 0 0 0 2.5 4v5A1.5 1.5 0 0 0 4 10.5h1.5"/>',
+  list: '<path d="M5.5 4h8M5.5 8h8M5.5 12h8M2.5 4h.01M2.5 8h.01M2.5 12h.01" stroke-width="1.6"/>',
+  gear: '<circle cx="8" cy="8" r="2"/><path d="M8 1.8v1.6M8 12.6v1.6M3.6 3.6l1.1 1.1M11.3 11.3l1.1 1.1M1.8 8h1.6M12.6 8h1.6M3.6 12.4l1.1-1.1M11.3 4.7l1.1-1.1"/>',
+  done: '<path d="m3.5 8.5 3 3 6-7" stroke-width="1.6"/>',
+  refresh: '<path d="M13 8a5 5 0 1 1-1.5-3.6M13 2.5v3h-3"/>',
+  eye: '<path d="M1.5 8S4 3.5 8 3.5 14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8Z"/><circle cx="8" cy="8" r="2"/>',
+};
+const svg = (name) => `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON[name]}</svg>`;
+const iconBtn = (name, label, onclick, extra = {}) => {
+  const b = el('button', { type: 'button', className: 'icon-btn', title: label, ariaLabel: label, onclick, ...extra });
+  b.innerHTML = svg(name);
+  return b;
+};
+
+// ---------- data ----------
 async function setTab(id) {
   tabId = id;
   const s = await chrome.storage.session.get(null);
   ({ urlKey = null, orphans = [] } = s['tab:' + id] || {});
-  activeId = s['active:' + id] || null;
   pending.clear();
   for (const k in s) if (k.startsWith('pending:') && live(s[k])) pending.add(k.slice(8));
   for (const k in s) if (k.startsWith('stream:')) streams[k.slice(7)] = s[k];
+  openOrphan = null;
+  showFull = false;
   await loadPage();
 }
 
@@ -48,30 +72,12 @@ async function checkChanged() {
   if (key === urlKey) render();
 }
 
-function setActive(id) {
-  activeId = id;
-  chrome.storage.session.set({ ['active:' + tabId]: id });
-  chrome.tabs.sendMessage(tabId, { type: 'highlight.scroll', id }).catch(() => {});
-  render();
-}
-
-// --- actions ---
-async function send(h, ask) {
-  const text = (drafts[h.id] || '').trim();
-  if (!text && !ask) return;
-  drafts[h.id] = '';
-  delete errors[h.id];
-  if (ask) pending.add(pk(h.id));
-  render();
-  const res = await bg({ type: 'thread.send', urlKey, id: h.id, text, ask, tabId });
-  if (res?.error) { errors[h.id] = res.error; pending.delete(pk(h.id)); }
-  render();
-}
+// ---------- actions ----------
+const jump = (id) => chrome.tabs.sendMessage(tabId, { type: 'highlight.scroll', id }).catch(() => {});
 
 async function summarise() {
   delete errors.summary;
   pending.add(pk('summary'));
-  activeId = 'summary';
   render();
   const res = await bg({ type: 'page.summarise', urlKey, tabId });
   if (res?.error) errors.summary = res.error;
@@ -80,243 +86,229 @@ async function summarise() {
   render();
 }
 
+async function sendPage(retry = false) {
+  const ta = composer.ta;
+  const text = retry ? '' : ta.value.trim();
+  const ask = retry || !noteMode;
+  if (!text && !retry) return;
+  ta.value = '';
+  composer.autosize();
+  delete errors.page;
+  if (ask) pending.add(pk('page'));
+  render();
+  const res = await bg({ type: 'thread.send', urlKey, id: 'page', text, ask, tabId });
+  if (res?.error) { errors.page = res.error; pending.delete(pk('page')); }
+  render();
+}
+
 async function copyNotes(btn) {
   await navigator.clipboard.writeText(MarginNotes.pageMarkdown(page));
-  btn.textContent = 'Copied ✓';
-  setTimeout(() => { btn.textContent = 'Copy as notes'; }, 1500);
+  btn.innerHTML = svg('done');
+  btn.title = btn.ariaLabel = 'Copied as notes';
+  setTimeout(() => { btn.innerHTML = svg('copy'); btn.title = btn.ariaLabel = 'Copy as notes'; }, 1500);
 }
 
-async function startResolve(h) {
-  resolving[h.id] = { loading: true };
-  render();
-  const res = await bg({ type: 'thread.resolve', urlKey, id: h.id });
-  resolving[h.id] = res?.error ? { error: res.error, text: '' } : { text: res.draft || '' };
-  render();
-  document.querySelector('.card.active textarea.takeaway-input')?.focus();
-}
+// ---------- views ----------
+const ago = (ts) => {
+  const s = (Date.now() - new Date(ts)) / 1000;
+  if (s < 60) return 'just now';
+  if (s < 3600) return `${Math.floor(s / 60)}m`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h`;
+  return new Date(ts).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+};
 
-async function acceptResolve(h, text) {
-  delete resolving[h.id];
-  await bg({ type: 'thread.resolve', urlKey, id: h.id, takeaway: text });
-}
-
-// --- rendering ---
-function header() {
-  const hs = page?.highlights || [];
-  $('title').textContent = page?.title || 'Margin';
-  const open = hs.filter((h) => h.status !== 'resolved').length;
-  const takeaways = hs.filter((h) => h.takeaway).length;
-  $('meta').textContent = hs.length
-    ? `${hs.length} thread${hs.length === 1 ? '' : 's'} · ${takeaways} takeaway${takeaways === 1 ? '' : 's'} · ${open} open`
-    : '';
-  const busy = pending.has(pk('summary'));
-  $('tools').replaceChildren(...(urlKey ? [
-    !page?.summary && el('button', { textContent: busy ? 'Summarising…' : 'Summarise page', disabled: busy, onclick: summarise }),
-    (hs.length || page?.summary) && el('button', { textContent: 'Copy as notes', onclick: (e) => copyNotes(e.target) }),
-  ] : []).filter(Boolean),
-  el('button', { textContent: 'All threads', onclick: () => chrome.tabs.create({ url: chrome.runtime.getURL('threads.html') }) }),
-  el('button', { textContent: 'Settings', onclick: () => chrome.runtime.openOptionsPage() }));
-}
-
-// Bottom of the list: wipe this page's summary, highlights and threads, with an inline confirm.
-let confirmPageDelete = false;
-function pageDelete() {
-  if (!page) return null;
-  if (!confirmPageDelete) {
-    return el('div', { className: 'row' }, el('span', { className: 'spacer' }),
-      el('button', { className: 'danger', textContent: 'Delete all data for this page', onclick: () => { confirmPageDelete = true; render(); } }));
-  }
-  return el('div', { className: 'row' },
-    el('span', {}, 'Delete the summary and every thread on this page?'),
-    el('span', { className: 'spacer' }),
-    el('button', { textContent: 'Keep', onclick: () => { confirmPageDelete = false; render(); } }),
-    el('button', { className: 'danger', textContent: 'Delete', onclick: () => {
-      confirmPageDelete = false;
-      bg({ type: 'page.delete', urlKey });
-    } }));
-}
-
-function messageView(m) {
-  const who = { user: 'You', assistant: m.by || replier, note: 'Note' }[m.role];
+function messageView(m, partial = false) {
+  const ai = m.role === 'assistant';
   const body = el('div', { className: 'body' });
-  if (m.role === 'assistant') body.innerHTML = md(m.content);
-  else body.textContent = m.content;
-  return el('div', { className: 'msg ' + m.role }, el('div', { className: 'who' }, who), body);
+  if (ai) {
+    body.innerHTML = md(m.content);
+    if (partial) (body.lastElementChild || body).append(el('span', { className: 'caret' }));
+  } else body.textContent = m.content;
+  return el('div', { className: 'msg' + (m.role === 'note' ? ' note' : '') },
+    el('div', { className: 'av' + (ai ? ' ai' : ''), textContent: ai ? '✦' : 'Y', ariaHidden: 'true' }),
+    el('div', { className: 'meta' },
+      el('span', { className: 'name', textContent: ai ? (m.by || replier) : 'You' }),
+      m.role === 'note' && el('span', { className: 'tag', textContent: 'note' }),
+      !partial && m.ts && el('span', { className: 'time', textContent: ago(m.ts) })),
+    body);
 }
 
 // While waiting: the streamed partial reply if the provider streams, else a placeholder.
-function thinking(id) {
-  const partial = streams[pk(id)];
-  return partial ? messageView({ role: 'assistant', content: partial + ' ▍' }) : el('div', { className: 'thinking' }, `${replier} is thinking…`);
-}
-function summaryStream() {
-  const body = el('div', { className: 'body' });
-  body.innerHTML = md(streams[pk('summary')] + ' ▍');
-  return el('div', { className: 'msg' }, body);
+function thinking(key, label) {
+  const partial = streams[key];
+  return partial ? messageView({ role: 'assistant', content: partial }, true)
+    : el('div', { className: 'msg' }, el('div', { className: 'av ai', textContent: '✦' }), el('div', { className: 'thinking', textContent: label }));
 }
 
-function composer(h) {
-  const busy = pending.has(pk(h.id));
-  const ta = el('textarea', {
-    placeholder: h.id === 'summary' ? 'Ask about the summary or the page…' : 'Ask about this passage, or jot a note…',
-    value: drafts[h.id] || '',
-    disabled: busy,
-    ariaLabel: 'Message',
-  });
-  ta.addEventListener('input', () => { drafts[h.id] = ta.value; });
-  ta.addEventListener('keydown', (e) => {
-    if (e.key !== 'Enter' || e.shiftKey) return;
-    e.preventDefault();
-    send(h, e.metaKey || e.ctrlKey);  // ⌘↵ asks Claude, ↵ saves a note
-  });
-  return el('div', {}, ta,
-    el('div', { className: 'row' },
-      el('span', { className: 'hint' }, '↵ note · ⌘↵ ask · ⇧↵ newline'),
-      el('span', { className: 'spacer' }),
-      el('button', { textContent: 'Note', disabled: busy, onclick: () => send(h, false) }),
-      el('button', { className: 'primary', textContent: `Ask ${replier}`, disabled: busy,
-        onclick: () => (drafts[h.id] || '').trim() && send(h, true) })));
-}
+const label = (text, n, ...extra) => el('h2', { className: 'label' }, text, n != null && el('span', { className: 'n', textContent: n }), el('span', { className: 'spacer' }), ...extra);
+const quote = (h, n = 110) => el('span', { className: 'hl', textContent: h.exact.length > n ? h.exact.slice(0, n - 1) + '…' : h.exact });
 
-function resolveView(h) {
-  const r = resolving[h.id];
-  if (r.loading) return el('div', { className: 'thinking' }, 'Drafting a takeaway…');
-  const input = el('textarea', { className: 'takeaway-input', value: r.text, placeholder: 'One-line takeaway', ariaLabel: 'Takeaway' });
-  input.addEventListener('input', () => { r.text = input.value; });
-  input.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); acceptResolve(h, input.value); }
-  });
-  return el('div', {},
-    r.error && el('div', { className: 'error' }, r.error.hint),
-    input,
-    el('div', { className: 'row' },
-      el('span', { className: 'hint' }, 'Edit if needed, then accept'),
-      el('span', { className: 'spacer' }),
-      el('button', { textContent: 'Cancel', onclick: () => { delete resolving[h.id]; render(); } }),
-      el('button', { className: 'primary', textContent: 'Accept', onclick: () => acceptResolve(h, input.value) })));
-}
-
-function actions(h) {
-  if (confirmDelete.has(h.id)) {
-    return el('div', { className: 'row' },
-      el('span', {}, 'Delete this highlight and its thread?'),
-      el('span', { className: 'spacer' }),
-      el('button', { textContent: 'Keep', onclick: () => { confirmDelete.delete(h.id); render(); } }),
-      el('button', { className: 'danger', textContent: 'Delete', onclick: () => {
-        confirmDelete.delete(h.id);
-        bg({ type: 'highlight.delete', urlKey, id: h.id });
-      } }));
-  }
-  const resolved = h.status === 'resolved';
-  return el('div', { className: 'row' },
-    el('span', { className: 'spacer' }),
-    resolved
-      ? el('button', { textContent: 'Reopen', onclick: () => bg({ type: 'thread.reopen', urlKey, id: h.id }) })
-      : el('button', { textContent: 'Resolve', disabled: pending.has(pk(h.id)) || !!resolving[h.id], onclick: () => startResolve(h) }),
-    el('button', { className: 'danger', textContent: 'Delete', onclick: () => { confirmDelete.add(h.id); render(); } }));
-}
-
-function card(h) {
-  const active = h.id === activeId;
-  const resolved = h.status === 'resolved';
-  const c = el('section', {
-    className: `card${active ? ' active' : ''}${resolved ? ' resolved' : ''}`,
-    tabIndex: active ? -1 : 0,
-    ariaLabel: `Thread on: ${h.exact.slice(0, 80)}`,
-  });
-  if (!active) {
-    c.addEventListener('click', () => setActive(h.id));
-    c.addEventListener('keydown', (e) => e.key === 'Enter' && setActive(h.id));
-  }
-  const userMsgs = h.messages.length;
-  c.append(
-    el('div', { className: 'quote' }, h.exact),
-    el('div', { className: 'badges' },
-      orphans.includes(h.id) && el('span', { className: 'badge warn' }, 'text not found on page'),
-      resolved && el('span', { className: 'badge' }, 'resolved'),
-      !active && userMsgs > 0 && el('span', {}, `${userMsgs} message${userMsgs === 1 ? '' : 's'}`),
-      !active && pending.has(pk(h.id)) && el('span', {}, `${replier} is replying…`)),
-    resolved && h.takeaway && el('div', { className: 'takeaway' }, h.takeaway));
-
-  if (active) {
-    if (!resolved || h.messages.length) c.append(el('div', { className: 'msgs' }, ...h.messages.map(messageView)));
-    if (pending.has(pk(h.id))) c.append(thinking(h.id));
-    if (errors[h.id]) {
-      c.append(el('div', { className: 'error' }, errors[h.id].hint,
-        el('div', {}, el('button', { textContent: 'Retry', onclick: () => send(h, true) }))));
-    }
-    if (resolving[h.id]) c.append(resolveView(h));
-    else if (!resolved) c.append(composer(h));
-    c.append(actions(h));
-  }
-  return c;
-}
-
-// Pinned at the top: the page summary (or its placeholder while it is generated) with its own thread (spec D11).
-function summaryCard() {
+function gistView() {
   const s = page?.summary;
   const busy = pending.has(pk('summary'));
-  if (!s && !busy && !errors.summary) return null;
-  const active = activeId === 'summary';
-  const t = { id: 'summary', messages: s?.messages || [] };
-  const c = el('section', { className: `card summary${active ? ' active' : ''}`, tabIndex: active ? -1 : 0, ariaLabel: 'Page summary' });
-  if (!active) {
-    c.addEventListener('click', () => setActive('summary'));
-    c.addEventListener('keydown', (e) => e.key === 'Enter' && setActive('summary'));
+  const sec = el('section', { className: 'block gist', ariaLabel: 'Gist' });
+  sec.append(label('✦ Gist', null, s && iconBtn('refresh', 'Summarise again', summarise, { disabled: busy })));
+  if (busy) {
+    const partial = streams[pk('summary')];
+    if (partial) { const d = el('div', { className: 'full' }); d.innerHTML = md(partial); d.append(el('span', { className: 'caret' })); sec.append(d); }
+    else sec.append(el('p', { className: 'thinking', textContent: 'Summarising the page…' }));
+    return sec;
   }
-  c.append(el('div', { className: 'label' }, 'Page summary'));
+  if (errors.summary) {
+    sec.append(el('div', { className: 'error', role: 'alert' }, errors.summary.hint, ' ',
+      el('button', { type: 'button', className: 'btn plain', textContent: 'Retry', onclick: summarise })));
+  }
   if (!s) {
-    c.append(busy ? (streams[pk('summary')] ? summaryStream() : el('div', { className: 'thinking' }, 'Summarising…')) : null,
-      errors.summary && el('div', { className: 'error' }, errors.summary.hint,
-        el('div', {}, el('button', { textContent: 'Retry', onclick: summarise }))));
-    return c;
+    sec.append(el('div', { className: 'empty-gist' },
+      el('p', { textContent: `A one-line gist and the key points. ${replier} also gets the gist with every question you ask here.` }),
+      Object.assign(el('button', { type: 'button', className: 'btn', onclick: summarise }), { innerHTML: `${svg('spark')} Summarise page` })));
+    return sec;
   }
-  const body = el('div', { className: 'msg' }, el('div', { className: 'body' }));
-  body.firstChild.innerHTML = MarginNotes.tldr(s.text) && !active ? DOMPurify.sanitize(marked.parseInline(MarginNotes.tldr(s.text))) : md(s.text);
-  c.append(body, el('div', { className: 'badges' },
-    changed[urlKey] && el('span', { className: 'badge warn' }, 'page changed since summary'),
-    !active && t.messages.length > 0 && el('span', {}, `${t.messages.length} message${t.messages.length === 1 ? '' : 's'}`)));
-  if (active) {
-    if (t.messages.length) c.append(el('div', { className: 'msgs' }, ...t.messages.map(messageView)));
-    if (busy) c.append(thinking('summary'));
-    if (errors.summary) {
-      c.append(el('div', { className: 'error' }, errors.summary.hint,
-        el('div', {}, el('button', { textContent: 'Retry', onclick: () => (t.messages.at(-1)?.role === 'user' ? send(t, true) : summarise()) }))));
-    }
-    c.append(composer(t), el('div', { className: 'row' }, el('span', { className: 'spacer' }),
-      el('button', { textContent: 'Regenerate', disabled: busy, title: 'Re-summarise the current page; clears this thread', onclick: summarise })));
+  const tldr = MarginNotes.tldr(s.text);
+  const p = el('p', { className: 'tldr' });
+  p.innerHTML = DOMPurify.sanitize(marked.parseInline(tldr || s.text.split('\n')[0]));
+  sec.append(p);
+  if (showFull) { const d = el('div', { className: 'full' }); d.innerHTML = md(s.text); sec.append(d); }
+  sec.append(el('button', { type: 'button', className: 'btn plain more', textContent: showFull ? 'Hide key points' : 'Show key points',
+    ariaExpanded: String(showFull), onclick: () => { showFull = !showFull; render(); } }));
+  if (changed[urlKey]) sec.append(el('div', { className: 'warn', textContent: 'The page has changed since this was made. Summarise again to update it.' }));
+  return sec;
+}
+
+function learnedView(hs) {
+  const done = hs.filter((h) => h.status === 'resolved');
+  if (!done.length) return null;
+  return el('section', { className: 'block', ariaLabel: 'What you learned' },
+    label('What you learned', done.length),
+    ...done.map((h) => el('button', { type: 'button', className: 'item', title: 'Jump to this passage', onclick: () => jump(h.id) },
+      el('div', { className: 'line' },
+        el('span', { className: 'mark', textContent: '✓', ariaHidden: 'true' }),
+        el('div', { className: 'main', textContent: h.takeaway || 'Resolved without a takeaway' }),
+        el('div', { className: 'src' }, quote(h))))));
+}
+
+function openView(hs) {
+  const open = hs.filter((h) => h.status !== 'resolved');
+  const sec = el('section', { className: 'block', ariaLabel: 'Still open' }, label('Still open', open.length));
+  if (!open.length) {
+    sec.append(el('p', { className: 'hint', textContent: hs.length ? 'Nothing open. Every thread has a takeaway.' : 'Select text on the page to comment on a passage.' }));
+    return sec;
   }
-  return c;
+  for (const h of open) {
+    const q = h.messages.filter((m) => m.role === 'user').at(-1);
+    const orphan = orphans.includes(h.id);
+    const busy = pending.has(h.id);
+    sec.append(el('button', { type: 'button', className: 'item', title: orphan ? 'Show this thread' : 'Jump to this passage',
+      ariaExpanded: orphan ? String(openOrphan === h.id) : null,
+      onclick: () => (orphan ? (openOrphan = openOrphan === h.id ? null : h.id, confirmOrphanDelete = false, render()) : jump(h.id)) },
+    el('div', { className: 'line' },
+      el('span', { className: 'mark q', textContent: '?', ariaHidden: 'true' }),
+      el('div', { className: 'main' }, q ? el('span', { className: 'q-text', textContent: q.content }) : el('span', { className: 'faint', textContent: h.messages.length ? 'Notes only' : 'No comments yet' })),
+      el('div', { className: 'src' }, quote(h)),
+      busy && el('div', { className: 'status', textContent: `${replier} is replying…` }),
+      orphan && el('div', { className: 'status warn', textContent: 'Text not found on the page. Click to see the thread.' }))));
+    if (orphan && openOrphan === h.id) sec.append(orphanView(h));
+  }
+  return sec;
+}
+
+function orphanView(h) {
+  return el('div', { className: 'orphan' },
+    ...h.messages.map((m) => messageView(m)),
+    el('div', { className: 'row' }, confirmOrphanDelete
+      ? el('span', {}, el('button', { type: 'button', className: 'btn', textContent: 'Cancel', onclick: () => { confirmOrphanDelete = false; render(); } }), ' ',
+        el('button', { type: 'button', className: 'btn danger', textContent: 'Delete thread', onclick: () => bg({ type: 'highlight.delete', urlKey, id: h.id }) }))
+      : el('button', { type: 'button', className: 'btn plain', textContent: 'Delete thread…', onclick: () => { confirmOrphanDelete = true; render(); } })));
+}
+
+// What the model is told on every question here and in the margin: made visible so it's never a mystery.
+function contextLine(hs) {
+  const parts = ['the article'];
+  if (page?.summary) parts.push('the gist');
+  const t = hs.filter((h) => h.takeaway).length;
+  const o = hs.filter((h) => h.status !== 'resolved' && h.messages.some((m) => m.role === 'user')).length;
+  if (t) parts.push(plural(t, 'takeaway'));
+  if (o) parts.push(plural(o, 'open question'));
+  const list = parts.length > 1 ? `${parts.slice(0, -1).join(', ')} and ${parts.at(-1)}` : parts[0];
+  return el('p', { className: 'context' }, Object.assign(el('span'), { innerHTML: svg('eye') }), `Every question includes ${list}.`);
+}
+
+function qaView() {
+  const msgs = page?.qa?.messages || [];
+  const busy = pending.has(pk('page'));
+  if (!msgs.length && !busy) return null;
+  return el('section', { className: 'block qa', ariaLabel: 'About this page' },
+    label('About this page', null),
+    el('div', { className: 'msgs' }, ...msgs.map((m) => messageView(m)), busy && thinking(pk('page'), `${replier} is thinking…`)));
+}
+
+// The page composer is built once so typing survives re-renders (streaming elsewhere re-renders often).
+const composer = (() => {
+  const ta = el('textarea', { rows: 1, ariaLabel: 'Ask about this page' });
+  const noteBtn = iconBtn('note', 'Note only: save without asking', () => { noteMode = !noteMode; render(); ta.focus(); });
+  const sendBtn = iconBtn('up', 'Send', () => sendPage());
+  sendBtn.className = 'send';
+  const autosize = () => {
+    ta.style.height = 'auto';
+    ta.style.height = `${Math.min(ta.scrollHeight, 160)}px`;
+    sendBtn.classList.toggle('ready', !!ta.value.trim());
+  };
+  ta.addEventListener('input', autosize);
+  ta.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); sendPage(); }
+  });
+  return { box: el('div', { className: 'composer' }, ta, noteBtn, sendBtn), ta, noteBtn, sendBtn, autosize };
+})();
+
+function footer() {
+  const busy = pending.has(pk('page'));
+  composer.ta.disabled = composer.sendBtn.disabled = busy;
+  composer.ta.placeholder = noteMode ? 'Add a note about this page…' : `Ask ${replier} about the whole page…`;
+  composer.noteBtn.ariaPressed = String(noteMode);
+  composer.sendBtn.title = composer.sendBtn.ariaLabel = noteMode ? 'Save note' : `Ask ${replier}`;
+  composer.autosize();
+  const del = !page ? null : confirmPageDelete
+    ? el('div', { className: 'confirm' }, 'Delete every comment and the gist for this page?',
+      el('button', { type: 'button', className: 'btn', textContent: 'Cancel', onclick: () => { confirmPageDelete = false; render(); } }),
+      el('button', { type: 'button', className: 'btn danger', textContent: 'Delete', onclick: () => { confirmPageDelete = false; bg({ type: 'page.delete', urlKey }); } }))
+    : el('div', { className: 'page-del' }, el('button', { type: 'button', className: 'btn plain', textContent: 'Delete this page\'s comments',
+      onclick: () => { confirmPageDelete = true; render(); } }));
+  $('foot').replaceChildren(...kids([
+    errors.page && el('div', { className: 'error', role: 'alert' }, errors.page.hint, ' ',
+      el('button', { type: 'button', className: 'btn plain', textContent: 'Retry', onclick: () => sendPage(true) })),
+    composer.box,
+    del,
+  ]));
+}
+
+function header() {
+  const hs = page?.highlights || [];
+  $('title').textContent = page?.title || (urlKey ? 'This page' : 'Margin');
+  let host = '';
+  try { host = urlKey ? new URL(urlKey).hostname.replace(/^www\./, '') : ''; } catch {}
+  $('host').textContent = [host, hs.length && plural(hs.length, 'comment thread')].filter(Boolean).join(' · ');
+  $('tools').replaceChildren(...kids([
+    page && (hs.length || page.summary || page.qa) && iconBtn('copy', 'Copy as notes', (e) => copyNotes(e.currentTarget)),
+    iconBtn('list', 'All threads', () => chrome.tabs.create({ url: chrome.runtime.getURL('threads.html') })),
+    iconBtn('gear', 'Settings', () => chrome.runtime.openOptionsPage()),
+  ]));
 }
 
 function render() {
-  // keep focus and caret in the active composer across re-renders
-  const focused = document.activeElement;
-  const refocus = focused?.tagName === 'TEXTAREA' ? { cls: focused.className, pos: focused.selectionStart } : null;
-
   header();
-  const list = $('list');
   if (!urlKey) {
-    list.replaceChildren(el('p', { className: 'empty' }, 'Margin isn\'t running on this tab. Open an article, or reload the page if you just installed Margin.'));
+    $('list').replaceChildren(el('div', { className: 'empty' }, el('b', { textContent: 'Margin isn\'t running on this tab' }),
+      'Open an article, or reload the page if you just installed or updated Margin.'));
+    $('foot').hidden = true;
     return;
   }
+  $('foot').hidden = false;
   const hs = [...(page?.highlights || [])].sort((a, b) => a.start - b.start);
-  list.replaceChildren(...[
-    summaryCard(),
-    ...hs.map(card),
-    !hs.length && el('p', { className: 'empty' }, 'Select text on the page to start a comment thread.'),
-    pageDelete(),
-  ].filter(Boolean));
-
-  const ta = document.querySelector('.card.active textarea');
-  if (ta && (refocus || !ta.value)) {
-    ta.focus();
-    if (refocus) ta.setSelectionRange(refocus.pos, refocus.pos);
-  }
-  document.querySelector('.card.active')?.scrollIntoView({ block: 'nearest' });
+  $('list').replaceChildren(...kids([gistView(), learnedView(hs), openView(hs), contextLine(hs), qaView()]));
+  footer();
 }
 
-// --- wiring ---
+// ---------- wiring ----------
 function setReplier(settings) {
   const o = settings?.provider === 'openai' && settings.openai?.model;
   replier = o ? o.split('/').pop() : 'Claude';
@@ -333,7 +325,6 @@ chrome.storage.onChanged.addListener((changes, area) => {
   let dirty = false;
   for (const [k, { newValue }] of Object.entries(changes)) {
     if (k === 'tab:' + tabId) { ({ urlKey = null, orphans = [] } = newValue || {}); loadPage(); }
-    else if (k === 'active:' + tabId) { activeId = newValue || null; dirty = true; }
     else if (k.startsWith('stream:')) { if (newValue) streams[k.slice(7)] = newValue; else delete streams[k.slice(7)]; dirty = true; }
     else if (k.startsWith('pending:')) { newValue && live(newValue) ? pending.add(k.slice(8)) : pending.delete(k.slice(8)); dirty = true; }
   }

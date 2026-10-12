@@ -2,61 +2,65 @@
 <html lang="en">
 <meta charset="utf-8">
 <title>Margin</title>
+<link rel="stylesheet" href="ui.css">
 <style>
-  :root {
-    --bg: #fafaf7; --card: #fff; --ink: #1f1f1f; --muted: #6b6b6b; --line: #e6e4dc;
-    --hl: #fff1a8; --hl-strong: #ffd84d; --accent: #8a6d00; --err: #b3261e; --err-bg: #fdecea;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root { --bg: #1b1b19; --card: #252522; --ink: #ecebe6; --muted: #a3a29b; --line: #3a3934;
-      --hl: #4a4220; --hl-strong: #6b5d1f; --accent: #e8c84a; --err: #ffb4ab; --err-bg: #3c1f1c; }
-  }
-  * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.45 system-ui, sans-serif; }
-  header { position: sticky; top: 0; background: var(--bg); padding: 12px 14px 8px; border-bottom: 1px solid var(--line); z-index: 1; }
-  header h1 { font-size: 13px; margin: 0 0 2px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  header .meta { color: var(--muted); font-size: 12px; }
-  main { padding: 10px 10px 40px; display: grid; gap: 8px; }
-  .tools { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
-  .card.summary { border-left: 3px solid var(--accent); }
-  .label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--accent); margin-bottom: 4px; }
-  .empty { color: var(--muted); padding: 24px 8px; text-align: center; }
-  .card { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; cursor: pointer; }
-  .card.active { border-color: var(--hl-strong); box-shadow: 0 0 0 2px var(--hl); cursor: default; }
-  .card.resolved:not(.active) { opacity: .7; }
-  .quote { border-left: 3px solid var(--hl-strong); padding-left: 8px; color: var(--muted); font-style: italic;
-    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-  .active .quote { -webkit-line-clamp: 6; }
-  .badges { display: flex; gap: 6px; margin-top: 6px; font-size: 11px; color: var(--muted); }
-  .badge { border: 1px solid var(--line); border-radius: 999px; padding: 0 6px; }
-  .badge.warn { color: var(--err); border-color: currentColor; }
-  .takeaway { margin-top: 8px; font-weight: 500; }
-  .takeaway::before { content: "✓ "; color: var(--accent); }
-  .msgs { margin-top: 10px; display: grid; gap: 10px; }
-  .msg .who { font-size: 11px; font-weight: 600; color: var(--muted); margin-bottom: 2px; }
-  .msg.assistant .who { color: var(--accent); }
-  .msg.note .body { color: var(--muted); }
-  .msg .body p { margin: 0 0 6px; } .msg .body p:last-child { margin-bottom: 0; }
-  .msg .body pre { overflow-x: auto; background: var(--bg); padding: 6px; border-radius: 4px; }
-  .msg .body ul, .msg .body ol { margin: 4px 0; padding-left: 18px; }
-  .thinking { color: var(--muted); font-style: italic; }
-  .error { margin-top: 10px; background: var(--err-bg); color: var(--err); padding: 8px; border-radius: 6px; }
-  .error button { margin-top: 6px; }
-  textarea { width: 100%; margin-top: 10px; min-height: 56px; resize: vertical; font: inherit; color: var(--ink);
-    background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; }
-  textarea:focus { outline: 2px solid var(--hl-strong); outline-offset: -1px; }
-  .row { display: flex; gap: 6px; margin-top: 6px; align-items: center; flex-wrap: wrap; }
-  .row .spacer { flex: 1; }
-  .hint { color: var(--muted); font-size: 11px; }
-  button { font: inherit; font-size: 12px; padding: 4px 10px; border-radius: 6px; border: 1px solid var(--line);
-    background: var(--card); color: var(--ink); cursor: pointer; }
-  button.primary { background: var(--hl-strong); border-color: var(--hl-strong); color: #1f1f1f; font-weight: 600; }
-  button.danger { color: var(--err); }
-  button:disabled { opacity: .5; cursor: default; }
-  button:focus-visible, .card:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  body { display: flex; flex-direction: column; min-height: 100vh; }
+  header { padding: 16px 16px 12px; border-bottom: 1px solid var(--line); }
+  header h1 { font-size: 16px; font-weight: 600; margin: 0; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .sub { display: flex; align-items: center; gap: 2px; margin-top: 2px; }
+  .sub .host { flex: 1; font-size: 12px; color: var(--faint); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  main { flex: 1; padding: 4px 0 8px; }
+
+  section.block { padding: 14px 16px 6px; }
+  .label { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: var(--soft); margin: 0 0 6px; }
+  .label .n { font-weight: 400; color: var(--faint); font-variant-numeric: tabular-nums; }
+  .label .spacer { flex: 1; }
+  .label .icon-btn { width: 24px; height: 24px; margin: -4px 0; }
+
+  /* Gist */
+  .gist .tldr { font-size: 15px; line-height: 1.5; margin: 0; }
+  .gist .full { margin-top: 8px; font-size: 13.5px; color: var(--soft); }
+  .gist .full ul { padding-left: 18px; margin: 4px 0; }
+  .gist .full p:last-child { display: none; }  /* the TL;DR line, already shown above */
+  .gist .more { margin: 4px 0 0 -9px; }
+  .gist .warn { font-size: 12px; color: var(--red); margin-top: 4px; }
+  .gist .empty-gist { display: grid; gap: 8px; justify-items: start; }
+  .gist .empty-gist p { margin: 0; font-size: 13px; color: var(--soft); }
+
+  /* Learned / open rows: each jumps to its passage on the page */
+  .item { display: block; width: 100%; text-align: left; padding: 7px 8px; margin: 0 -8px; border-radius: 6px; width: calc(100% + 16px); }
+  .item:hover { background: var(--hover); }
+  .item .line { display: grid; grid-template-columns: 16px 1fr; gap: 8px; align-items: start; }
+  .item .mark { font-size: 13px; line-height: 21px; color: var(--hl-line); font-weight: 700; text-align: center; }
+  .item .mark.q { color: var(--faint); }
+  .item .main { font-size: 14px; line-height: 1.5; }
+  .item .q-text { color: var(--ink); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .item .src { grid-column: 2; font-size: 12.5px; color: var(--faint); margin-top: 2px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .item .src .hl { color: var(--soft); }
+  .item .status { grid-column: 2; font-size: 12px; color: var(--faint); margin-top: 2px; }
+  .item .status.warn { color: var(--red); }
+  .hint { font-size: 13px; color: var(--faint); margin: 2px 0 6px; }
+
+  /* Orphaned thread: no passage to jump to, so it opens here */
+  .orphan { margin: 4px 0 8px 24px; padding: 8px 10px; border-radius: 8px; background: var(--bg-soft); }
+  .orphan .row { display: flex; justify-content: flex-end; gap: 6px; margin-top: 6px; }
+
+  /* Page Q&A */
+  .qa .msgs { display: grid; gap: 2px; }
+  .context { font-size: 12px; color: var(--faint); padding: 10px 16px 0; display: flex; gap: 6px; align-items: baseline; }
+  .context svg { width: 12px; height: 12px; flex: none; transform: translateY(1px); }
+  footer { position: sticky; bottom: 0; background: var(--bg); padding: 8px 12px 10px; border-top: 1px solid var(--line); }
+  footer .error { margin: 0 4px 6px; }
+  footer .page-del { display: flex; justify-content: center; margin-top: 6px; }
+  footer .page-del .btn { font-size: 12px; padding: 1px 6px; }
+  footer .confirm { display: flex; gap: 6px; align-items: center; justify-content: center; flex-wrap: wrap; margin-top: 6px; font-size: 12px; color: var(--soft); }
 </style>
-<header><h1 id="title">Margin</h1><div class="meta" id="meta"></div><div class="tools" id="tools"></div></header>
-<main id="list"></main>
+<header>
+  <h1 id="title">Margin</h1>
+  <div class="sub"><span class="host" id="host"></span><span id="tools"></span></div>
+</header>
+<main id="list" aria-live="polite"></main>
+<footer id="foot"></footer>
 <script src="vendor/marked.min.js"></script>
 <script src="vendor/purify.min.js"></script>
 <script src="notes.js"></script>
