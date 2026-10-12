@@ -109,23 +109,22 @@ await run('new requests and notes are rejected while delete-all drains writes', 
   chrome.storage.local.remove = original;
   assert.equal(state['page:' + key], undefined);
 });
-await run('deletion during long-article summary also cancels the parent question', async () => {
-  state['page:' + key].article.text = 'a'.repeat(120001);
-  const question = send(); await wait(() => calls.length === 1);
-  await msg({type: 'page.delete', urlKey: key});
-  calls[0].finish(); const result = await question;
-  assert.equal(result.error.code, 'CANCELLED');
-  assert.equal(calls.length, 1);
-  assert.equal(state['page:' + key], undefined);
-});
-await run('thread on a long article waits for an in-flight summary', async () => {
-  state['page:' + key].article.text = 'a'.repeat(120001);
-  const summary = msg({type: 'page.summarise', urlKey: key, tabId: 1}); await wait(() => calls.length === 1);
-  const question = send();
-  calls[0].finish(); await summary; await wait(() => calls.length === 2);
-  assert.match(calls[1].body.messages[0].content, /<summary title=/);
-  calls[1].finish(); await question;
-  assert.equal(state['page:' + key].qa.messages.at(-1).role, 'assistant');
+await run('threads send the title, never the page, and the summary only once made', async () => {
+  let extracted = 0;
+  const original = chrome.tabs.sendMessage;
+  chrome.tabs.sendMessage = async (...a) => { extracted++; return original(...a); };
+  const first = send('h'); await wait(() => calls.length === 1);
+  const sys = calls[0].body.messages[0].content;
+  assert.match(sys, /<title>Article<\/title>/);
+  assert.doesNotMatch(sys, /OLD ARTICLE|LIVE ARTICLE|<summary>\n/);
+  assert.match(calls[0].body.messages.at(-1).content, /<context>context<\/context>/);
+  calls[0].finish(); await first;
+  assert.equal(extracted, 0);
+  state['page:' + key].summary = {text: 'THE GIST'};
+  const second = send(); await wait(() => calls.length === 2);
+  assert.match(calls[1].body.messages[0].content, /<summary>\nTHE GIST/);
+  calls[1].finish(); await second;
+  chrome.tabs.sendMessage = original;
 });
 await run('every page write is mirrored to the native host, in order', async () => {
   await msg({type: 'thread.reopen', urlKey: key, id: 'h'});
