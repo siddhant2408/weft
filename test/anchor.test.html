@@ -1,0 +1,93 @@
+<!doctype html>
+<!-- R2 + R3. Run: test/run-anchor.sh (headless Chrome), or open in Chrome and read #result. -->
+<meta charset="utf-8">
+<title>anchor test</title>
+<style>::highlight(margin) { background: yellow; }</style>
+<article id="a">
+  <h1>The economics of attention</h1>
+  <p id="p1">Most readers skim. A study of   2,000 readers found that
+     only <em>one in five</em> finished an article past the <a href="#">third paragraph</a>.</p>
+  <p id="p2">This is the end of the second paragraph.</p>
+  <p id="p3">Third paragraph starts here and keeps going.</p>
+  <div style="display:none">hidden duplicate: Revenue grew forty percent year over year.</div>
+  <p id="dup1">Revenue grew forty percent year over year. That was the good news.</p>
+  <p id="long">The company claims that its retention numbers are the best in the industry, driven mostly by the new onboarding flow launched in spring.</p>
+  <p id="gone">This paragraph will be deleted before re-anchoring.</p>
+  <ul><li id="li">Lists hold claims too, like a 12% churn rate.</li></ul>
+  <p id="dup2">Critics disagreed. Revenue grew forty percent year over year. But margins fell.</p>
+</article>
+<pre id="result">RUNNING</pre>
+<script src="../anchor.js"></script>
+<script>
+(() => {
+  const A = MarginAnchor, fails = [];
+  const norm = (s) => s.replace(/\s+/g, ' ').trim();
+  const ix = A.buildIndex(document.getElementById('a'));
+  const t = ix.text;
+
+  // name, needle, which occurrence finder, expected after edits (null = orphan), optional container check
+  const cases = [
+    ['plain', 'Most readers skim.', 'first'],
+    ['whitespace', 'A study of 2,000 readers found that only', 'first'],
+    ['cross-inline', 'only one in five finished an article past the third paragraph', 'first'],
+    ['cross-block', 'second paragraph. Third paragraph starts', 'first'],
+    ['dup-second', 'Revenue grew forty percent year over year.', 'last', null, '#dup2'],
+    ['dup-first', 'Revenue grew forty percent year over year.', 'first', null, '#dup1'],
+    ['long-edited', 'its retention numbers are the best in the industry, driven mostly by the new onboarding flow',
+      'first', 'its retention numbers are among the best in the industry, driven mostly by the new onboarding flow'],
+    ['deleted', 'This paragraph will be deleted', 'first', 'ORPHAN'],
+    ['list', 'a 12% churn rate.', 'first'],
+    ['heading', 'economics of attention', 'first'],
+  ];
+
+  if (t.includes('hidden duplicate')) fails.push('hidden text was indexed');
+
+  const sels = cases.map(([name, needle, which]) => {
+    const p = which === 'last' ? t.lastIndexOf(needle) : t.indexOf(needle);
+    if (p < 0) { fails.push(`${name}: needle not in index`); return null; }
+    const sel = A.selectorFromRange(ix, A.toRange(ix, p, p + needle.length));
+    if (sel.exact !== needle) fails.push(`${name}: round-trip exact ${JSON.stringify(sel.exact)}`);
+    return sel;
+  });
+
+  // Page changes between visits: ad inserted at top (shifts every offset), a word edited, a paragraph removed.
+  const ad = document.createElement('div');
+  ad.textContent = 'Advertisement: buy things. Revenue grew forty percent year over year.';
+  document.getElementById('a').prepend(ad);
+  const long = document.getElementById('long').firstChild;
+  long.data = long.data.replace('are the best', 'are among the best');
+  document.getElementById('gone').remove();
+
+  // R3: anchoring + painting must not mutate the page.
+  const mo = new MutationObserver(() => {});
+  mo.observe(document.documentElement, { childList: true, subtree: true, characterData: true, attributes: true });
+
+  const ix2 = A.buildIndex(document.getElementById('a'));
+  const reg = new Highlight();
+  CSS.highlights.set('margin', reg);
+  let anchored = 0, expectedOrphans = 0;
+  cases.forEach(([name, needle, , expect, container], i) => {
+    if (!sels[i]) return;
+    const se = A.anchor(ix2, sels[i]);
+    if (expect === 'ORPHAN') {
+      expectedOrphans++;
+      if (se) fails.push(`${name}: should be orphaned, got ${JSON.stringify(ix2.text.slice(...se))}`);
+      return;
+    }
+    if (!se) return fails.push(`${name}: orphaned`);
+    const r = A.toRange(ix2, se[0], se[1]);
+    reg.add(r);
+    anchored++;
+    const got = norm(r.toString());
+    if (got !== norm(expect || needle)) fails.push(`${name}: got ${JSON.stringify(got)}`);
+    if (container && !r.startContainer.parentElement.closest(container)) fails.push(`${name}: wrong occurrence`);
+  });
+  const muts = mo.takeRecords().length;
+  mo.disconnect();
+  if (muts) fails.push(`R3: ${muts} page mutations during anchoring`);
+
+  const total = cases.length - expectedOrphans;
+  document.getElementById('result').textContent =
+    (fails.length ? 'FAIL\n' + fails.join('\n') : 'PASS') + `\nanchored ${anchored}/${total} (R2 needs >=90%)`;
+})();
+</script>

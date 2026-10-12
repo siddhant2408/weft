@@ -1,0 +1,6 @@
+::highlight(margin) {
+  background-color: rgb(255 236 120 / 0.45);
+}
+::highlight(margin-active) {
+  background-color: rgb(255 236 120 / 0.75);
+}
