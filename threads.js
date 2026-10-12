@@ -76,7 +76,7 @@ document.querySelectorAll('.seg button').forEach((b) => b.addEventListener('clic
   render();
 }));
 $('export').addEventListener('click', async () => {
-  const data = await chrome.storage.local.get(null);
+  const data = MarginNotes.exportData(await chrome.storage.local.get(null));
   const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
   el('a', { href: url, download: `margin-export-${new Date().toISOString().slice(0, 10)}.json` }).click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);

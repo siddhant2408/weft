@@ -75,13 +75,15 @@ async function streamRequest(url, init, onData, onText) {
   try {
     const res = await fetch(url, { ...init, signal: ctrl.signal });
     if (!res.ok) return httpError(res.status, await readError(res));
-    let text = '';
+    let text = '', complete = false;
     for await (const ev of sse(res.body)) {
       const delta = onData(ev);
-      if (delta === null) break;
-      if (delta) { text += delta; onText?.(text); }
+      if (delta === null) { complete = true; break; }
+      const t = delta?.text ?? delta;  // { text, done } ends the reply on a final chunk that still carries text
+      if (t) { text += t; onText?.(text); }
+      if (delta?.done) { complete = true; break; }
     }
-    return { ok: true, text };
+    return complete ? { ok: true, text } : { ok: false, code: 'INCOMPLETE', detail: 'The stream ended before the reply completed.' };
   } catch (e) {
     if (e?.code) return { ok: false, ...e };
     if (e?.name === 'AbortError') return { ok: false, code: 'TIMEOUT', detail: 'no reply in 120 s' };
@@ -118,6 +120,7 @@ function anthropic({ system, notes, prompt }, cfg, onText) {
     if (j.type === 'error') throw { code: j.error?.type === 'overloaded_error' ? 'API_DOWN' : 'API_ERROR', detail: j.error?.message || 'stream error' };
     if (j.type === 'content_block_delta' && j.delta?.type === 'text_delta') return j.delta.text;
     if (j.type === 'message_delta' && j.delta?.stop_reason === 'refusal') throw { code: 'REFUSED', detail: j.delta.stop_details?.explanation || '' };
+    if (j.type === 'message_delta' && ['max_tokens', 'model_context_window_exceeded'].includes(j.delta?.stop_reason)) throw { code: 'INCOMPLETE', detail: 'The reply reached the output token limit.' };
     if (j.type === 'message_stop') return null;
     return '';
   }, onText);
@@ -141,7 +144,10 @@ function openai({ system, notes, prompt }, cfg, onText) {
     if (data === '[DONE]') return null;
     const j = JSON.parse(data);
     if (j.error) throw { code: 'API_ERROR', detail: j.error.message || JSON.stringify(j.error) };
-    return j.choices?.[0]?.delta?.content || '';
+    if (j.choices?.some((c) => c.finish_reason === 'length')) throw { code: 'INCOMPLETE', detail: 'The reply reached the output token limit.' };
+    const text = j.choices?.[0]?.delta?.content || '';
+    // Some compatible servers close after finish_reason "stop" without sending [DONE].
+    return j.choices?.[0]?.finish_reason === 'stop' ? { text, done: true } : text;
   }, onText);
 }
 
