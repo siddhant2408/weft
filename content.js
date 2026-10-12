@@ -485,17 +485,6 @@
     return !!el && (el.isContentEditable || !!el.closest('input,textarea,select'));
   }
 
-  // Enclosing paragraph at creation time; sent to the model and survives page edits.
-  function contextFor(range, exact) {
-    let el = range.commonAncestorContainer;
-    if (el.nodeType !== 1) el = el.parentElement;
-    el = el.closest('p,li,blockquote,pre,td,dd,figcaption,h1,h2,h3,h4,h5,h6') || el;
-    const text = el.innerText.replace(/\s+/g, ' ').trim();
-    if (text.length <= 1500) return text;
-    const i = Math.max(0, text.indexOf(exact.slice(0, 50)));
-    return text.slice(Math.max(0, i - 700), Math.max(0, i - 700) + 1500);
-  }
-
   function onSelection() {
     const sel = getSelection();
     if (!sel.rangeCount || sel.isCollapsed || sel.toString().trim().length < 2 || editable(sel.anchorNode)) return;
@@ -508,7 +497,7 @@
     regDraft.clear();
     regDraft.add(r);
     // No focus steal: the page selection stays, so ⌘C still copies. Click the box to type.
-    openCard({ id: null, draft: { selector, context: contextFor(range, selector.exact), range: r } });
+    openCard({ id: null, draft: { selector, context: A.itemText(range, selector.exact), range: r } });
   }
 
   function extractArticle() {

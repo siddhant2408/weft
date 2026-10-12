@@ -118,5 +118,37 @@ var MarginAnchor = (() => {
     return null;
   }
 
-  return { buildIndex, selectorFromRange, anchor, toRange };
+  // The highlight's enclosing item: its paragraph/section on an article, its post/card on a feed.
+  // Walks up until the element is a whole item (semantic tag, or one of 3+ same-class siblings), never past MAX chars.
+  // ponytail: heuristic; tune MAX/MIN and ITEM against real pages (test/item.test.html).
+  const ITEM = 'article,[role=article],li,[role=listitem],section,blockquote,td,dialog,[role=dialog]';
+  const ITEM_MAX = 2000, ITEM_MIN = 200;
+  const textOf = (el) => el.innerText.replace(/\s+/g, ' ').trim();
+  // Only classed elements count: bare <p> siblings are paragraphs, not feed items.
+  function repeated(el) {
+    if (!el.classList.length || !el.parentElement) return false;
+    const sig = (n) => n.tagName + '.' + [...n.classList].sort().join('.');
+    const s = sig(el);
+    return [...el.parentElement.children].filter((n) => sig(n) === s).length >= 3;
+  }
+  function itemText(range, exact) {
+    let el = range.commonAncestorContainer;
+    if (el.nodeType !== 1) el = el.parentElement;
+    let best = el;
+    while (el && el !== document.body && el.tagName !== 'MAIN') {
+      const len = textOf(el).length;
+      if (len > ITEM_MAX) break;
+      best = el;
+      // MIN skips a bare bullet inside a post; a repeated card is an item at any size (short comments).
+      if (repeated(el) || (len >= ITEM_MIN && el.matches(ITEM))) break;
+      el = el.parentElement;
+    }
+    const text = textOf(best);
+    if (text.length <= ITEM_MAX) return text;
+    const i = Math.max(0, text.indexOf(exact.slice(0, 50)));  // only the starting element can be this long
+    const from = Math.max(0, Math.min(i - ITEM_MAX / 2, text.length - ITEM_MAX));
+    return text.slice(from, from + ITEM_MAX);
+  }
+
+  return { buildIndex, selectorFromRange, anchor, toRange, itemText };
 })();
