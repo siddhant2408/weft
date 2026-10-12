@@ -35,5 +35,22 @@ var MarginNotes = (() => {
     return parts.join('\n\n') + '\n';
   }
 
-  return { fragmentUrl, pageMarkdown, tldr };
+  // Notes exports must never include provider credentials or unrelated extension state.
+  const pick = (obj, keys) => Object.fromEntries(keys.filter((k) => obj?.[k] !== undefined).map((k) => [k, obj[k]]));
+  const messages = (ms = []) => ms.map((m) => pick(m, ['role', 'content', 'by', 'ts']));
+  function exportData(storage) {
+    const pages = Object.entries(storage).filter(([k, p]) => k.startsWith('page:') && p).map(([, p]) => ({
+      ...pick(p, ['urlKey', 'title', 'updatedAt']),
+      highlights: (p.highlights || []).map((h) => ({
+        ...pick(h, ['id', 'exact', 'prefix', 'suffix', 'start', 'end', 'context', 'status', 'takeaway', 'createdAt']),
+        messages: messages(h.messages),
+      })),
+      ...(p.qa ? { qa: { messages: messages(p.qa.messages) } } : {}),
+      ...(p.summary ? { summary: pick(p.summary, ['text', 'createdAt', 'contentHash']) } : {}),
+      ...(p.article ? { article: pick(p.article, ['title', 'text', 'truncated', 'hash']) } : {}),
+    }));
+    return { version: 1, pages };
+  }
+
+  return { fragmentUrl, pageMarkdown, tldr, exportData };
 })();
