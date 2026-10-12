@@ -19,6 +19,8 @@ const HINTS = {
   NETWORK: 'Couldn\'t reach the provider. Check your connection.',
   REFUSED: 'The model declined to answer this one.',
   INCOMPLETE: 'The reply was interrupted or hit its output limit. Retry to get a complete answer.',
+  BUSY: 'A reply is already in progress for this thread. Wait for it to finish.',
+  CANCELLED: 'This request was cancelled because its page or thread was deleted.',
 };
 const fail = (code, detail) => ({ error: { code, hint: (HINTS[code] && detail && /^API_|REFUSED/.test(code) ? `${HINTS[code]} (${detail})` : HINTS[code]) || detail || code } });
 
@@ -29,11 +31,13 @@ chrome.storage.session.setAccessLevel({ accessLevel: 'TRUSTED_AND_UNTRUSTED_CONT
 
 // --- Storage: this worker is the only writer; read-modify-write is serialised per page (spec §4) ---
 const chains = new Map();
-function updatePage(urlKey, fn) {
+function updatePage(urlKey, fn, request) {
   const run = (chains.get(urlKey) || Promise.resolve()).then(async () => {
     const k = 'page:' + urlKey;
     const page = (await chrome.storage.local.get(k))[k] || null;
-    const { save, result } = fn(page) || {};
+    if (request?.cancelled) return;
+    const { save, remove, result } = fn(page) || {};
+    if (remove) await chrome.storage.local.remove(k);
     if (save) await chrome.storage.local.set({ [k]: { ...save, updatedAt: new Date().toISOString() } });
     return result;
   });
@@ -51,7 +55,7 @@ const findThread = (page, id) => (id === 'page' ? page?.qa : page?.highlights.fi
 
 // Apply fn to one thread in place; returns fn's result, or undefined if the thread is gone.
 // The page Q&A is created on first use, along with the page record if needed.
-const updateThread = (urlKey, id, fn) => updatePage(urlKey, (page) => {
+const updateThread = (urlKey, id, fn, request) => updatePage(urlKey, (page) => {
   if (id === 'page') {
     page ||= { urlKey, title: '', summary: null, highlights: [] };
     page.qa ||= { messages: [] };
@@ -59,7 +63,7 @@ const updateThread = (urlKey, id, fn) => updatePage(urlKey, (page) => {
   const t = findThread(page, id);
   if (!t) return {};
   return { save: page, result: fn(t, page) };
-});
+}, request);
 
 const str = (v, max) => typeof v === 'string' && v.length <= max;
 const validSelector = (s) => s && str(s.exact, 20000) && s.exact.length > 0 && str(s.prefix, 64) && str(s.suffix, 64)
@@ -84,15 +88,19 @@ const passageBlock = (h) => `<passage>${h.exact}</passage>\n<context>${h.context
 const articleBlock = (a, title) => `<article>\n<title>${a.title || title}</title>\n${a.text}${a.truncated ? '\n[article truncated]' : ''}\n</article>`;
 
 // What a thread sees: the article if it fits, else the summary (generated first if missing).
-async function threadSystem(urlKey, tabId) {
-  const article = await ensureArticle(urlKey, tabId);
+async function threadSystem(urlKey, tabId, request) {
+  const article = await ensureArticle(urlKey, tabId, request);
+  if (request.cancelled) return '';
   if (!article) return READER_SYS + '\n\n(The article text is unavailable; rely on the passage and context.)';
   if (article.text.length <= THREAD_MAX_CHARS) return READER_SYS + '\n\n' + articleBlock(article, '');
   let page = await getPage(urlKey);
+  if (request.cancelled) return '';
   if (!page.summary) {
     const r = await summarise(urlKey, tabId);
+    if (request.cancelled) return '';
     if (r.error) return READER_SYS + '\n\n(The article is too long to include and its summary failed; rely on the passage and context.)';
     page = await getPage(urlKey);
+    if (request.cancelled) return '';
   }
   return READER_SYS + `\n\n<summary title="${(article.title || page.title).replace(/"/g, "'")}">\n${page.summary.text}\n</summary>\n(The full article is too long to include; this is its summary.)`;
 }
@@ -129,61 +137,100 @@ async function extract(tabId) {
 }
 
 // Snapshot once per page: later turns reuse it byte-for-byte (cache hits), and threads work after the tab closes.
-async function ensureArticle(urlKey, tabId) {
+async function ensureArticle(urlKey, tabId, request) {
   const page = await getPage(urlKey);
   if (page?.article) return page.article;
   const article = await extract(tabId);
-  if (article) await updatePage(urlKey, (p) => p && { save: { ...p, article } });
+  if (article) await updatePage(urlKey, (p) => p && { save: { ...p, article } }, request);
   return article;
 }
 
 // pending:<key> marks a model call in flight so the panel can show "thinking" across reopenings;
 // stream:<key> holds the partial reply while an API provider streams (throttled; also keeps the worker awake).
 const pendingKey = (urlKey, id) => (id === 'summary' ? 'summary:' + urlKey : id === 'page' ? 'qa:' + urlKey : id);
-async function withPending(key, fn) {
+// Reserve before any await: UI disabling alone cannot coordinate multiple tabs.
+const requests = new Map();
+const deleting = new Set();
+const isDeleting = (urlKey) => deleting.has('*') || deleting.has(urlKey);
+async function withDeletion(urlKey, fn) {
+  if (isDeleting(urlKey) || (urlKey === '*' && deleting.size)) return fail('BUSY');
+  deleting.add(urlKey);
+  try { return await fn(); }
+  finally { deleting.delete(urlKey); }
+}
+async function withRequest(urlKey, id, fn) {
+  if (isDeleting(urlKey)) return fail('CANCELLED');
+  const key = pendingKey(urlKey, id);
+  if (requests.has(key)) return fail('BUSY');
+  const request = { key, urlKey, id, cancelled: false };
+  requests.set(key, request);
+  try { return await fn(request); }
+  finally { if (requests.get(key) === request) requests.delete(key); }
+}
+
+async function cancelRequests(urlKey, id) {
+  const keys = [];
+  for (const [key, request] of requests) {
+    if (urlKey !== undefined && request.urlKey !== urlKey) continue;
+    if (id !== undefined && request.id !== id) continue;
+    request.cancelled = true;
+    requests.delete(key);
+    keys.push('pending:' + key, 'stream:' + key);
+  }
+  if (keys.length) await chrome.storage.session.remove(keys);
+}
+
+async function withPending(request, fn) {
+  const { key } = request;
+  if (request.cancelled) return fail('CANCELLED');
   await chrome.storage.session.set({ ['pending:' + key]: Date.now() });
   let latest = '', timer = null;
-  const flush = () => { timer = null; chrome.storage.session.set({ ['stream:' + key]: latest }); };
-  const onText = (t) => { latest = t; timer ||= setTimeout(flush, 150); };
+  const flush = () => { timer = null; if (!request.cancelled) chrome.storage.session.set({ ['stream:' + key]: latest }); };
+  const onText = (t) => { if (!request.cancelled) { latest = t; timer ||= setTimeout(flush, 150); } };
   try {
     return await fn(onText);
   } finally {
     clearTimeout(timer);
-    await chrome.storage.session.remove(['stream:' + key, 'pending:' + key]);
+    if (requests.get(key) === request) await chrome.storage.session.remove(['stream:' + key, 'pending:' + key]);
   }
 }
 
 // Summary always reads the live page (Regenerate exists for "page changed"); the thread snapshot stays put.
 function summarise(urlKey, tabId) {
-  return withPending(pendingKey(urlKey, 'summary'), async (onText) => {
+  return withRequest(urlKey, 'summary', (request) => withPending(request, async (onText) => {
     const live = await extract(tabId);
+    if (request.cancelled) return fail('CANCELLED');
     if (!live) return fail('NO_ARTICLE');
     await updatePage(urlKey, (p) => {
       p ||= { urlKey, title: live.title || '', summary: null, highlights: [] };
       return { save: p.article ? p : { ...p, article: live } };
-    });
+    }, request);
+    if (request.cancelled) return fail('CANCELLED');
     const res = await ask({ system: READER_SYS + '\n\n' + articleBlock(live, ''), prompt: SUMMARY_TASK }, onText);
+    if (request.cancelled) return fail('CANCELLED');
     if (!res.ok) return fail(res.code, res.detail);
     const summary = { text: res.text.trim(), createdAt: new Date().toISOString(), contentHash: live.hash };
-    await updatePage(urlKey, (p) => ({ save: { ...p, title: p.title || live.title || '', summary } }));
-    return { ok: true };
-  });
+    await updatePage(urlKey, (p) => p && ({ save: { ...p, title: p.title || live.title || '', summary } }), request);
+    return request.cancelled ? fail('CANCELLED') : { ok: true };
+  }));
 }
 
-function runThread(urlKey, id, tabId) {
-  return withPending(pendingKey(urlKey, id), async (onText) => {
+function runThread(urlKey, id, tabId, request) {
+  return withPending(request, async (onText) => {
     const t = findThread(await getPage(urlKey), id);
     if (!t) return fail('NOT_FOUND', 'This thread no longer exists.');
     if (t.messages.at(-1)?.role !== 'user') return { ok: true };  // nothing to answer
     const anchor = id === 'page' ? 'This thread is about the article as a whole, not one passage.' : passageBlock(t);
     const prompt = `${anchor}\n\nThread so far, oldest first:\n\n${transcript(t)}\n\nReply to my latest message.`;
-    const system = await threadSystem(urlKey, tabId);
+    const system = await threadSystem(urlKey, tabId, request);
     const notes = readerNotes(await getPage(urlKey), id);
+    if (request.cancelled) return fail('CANCELLED');
     const res = await ask({ system, notes, prompt }, onText);
+    if (request.cancelled) return fail('CANCELLED');
     if (!res.ok) return fail(res.code, res.detail);
     const by = replierName(await getSettings());
-    await updateThread(urlKey, id, (x) => { x.messages.push({ role: 'assistant', content: res.text, by, ts: new Date().toISOString() }); });
-    return { ok: true };
+    await updateThread(urlKey, id, (x) => { x.messages.push({ role: 'assistant', content: res.text, by, ts: new Date().toISOString() }); }, request);
+    return request.cancelled ? fail('CANCELLED') : { ok: true };
   });
 }
 
@@ -211,6 +258,7 @@ const handlers = {
   'highlight.create': async (msg, sender) => {
     if (!validSelector(msg.selector)) return fail('BAD_REQUEST');
     const urlKey = normaliseUrl(msg.url, msg.canonical);
+    if (isDeleting(urlKey)) return fail('CANCELLED');
     const { exact, prefix, suffix, start, end } = msg.selector;
     const highlight = {
       id: crypto.randomUUID(), exact, prefix, suffix, start, end,
@@ -232,21 +280,29 @@ const handlers = {
     if (sender.tab) await chrome.storage.session.set({ ['active:' + sender.tab.id]: msg.id });
   },
 
-  'highlight.delete': (msg) => updatePage(msg.urlKey, (page) => page && {
-    save: { ...page, highlights: page.highlights.filter((h) => h.id !== msg.id) },
-  }),
+  'highlight.delete': async (msg) => {
+    await cancelRequests(msg.urlKey, msg.id);
+    return updatePage(msg.urlKey, (page) => page && {
+      save: { ...page, highlights: page.highlights.filter((h) => h.id !== msg.id) },
+    });
+  },
 
   // text + ask:false → note; text + ask:true → question; no text + ask:true → retry the last question.
   'thread.send': async (msg, sender) => {
-    const text = String(msg.text || '').trim().slice(0, 20000);
-    if (text) {
-      const ok = await updateThread(msg.urlKey, msg.id, (t) => {
-        t.messages.push({ role: msg.ask ? 'user' : 'note', content: text, ts: new Date().toISOString() });
-        return true;
-      });
-      if (!ok) return fail('NOT_FOUND', 'This thread no longer exists.');
-    }
-    return msg.ask ? runThread(msg.urlKey, msg.id, msg.tabId ?? sender.tab?.id) : { ok: true };
+    if (isDeleting(msg.urlKey)) return fail('CANCELLED');
+    const send = async (request) => {
+      const text = String(msg.text || '').trim().slice(0, 20000);
+      if (text) {
+        const ok = await updateThread(msg.urlKey, msg.id, (t) => {
+          t.messages.push({ role: msg.ask ? 'user' : 'note', content: text, ts: new Date().toISOString() });
+          return true;
+        }, request);
+        if (request?.cancelled) return fail('CANCELLED');
+        if (!ok) return fail('NOT_FOUND', 'This thread no longer exists.');
+      }
+      return msg.ask ? runThread(msg.urlKey, msg.id, msg.tabId ?? sender.tab?.id, request) : { ok: true };
+    };
+    return msg.ask ? withRequest(msg.urlKey, msg.id, send) : send();
   },
 
   'thread.resolve': async (msg) => {
@@ -262,17 +318,19 @@ const handlers = {
     return res.ok ? { draft: res.text.trim().split('\n')[0] } : fail(res.code, res.detail);
   },
 
-  'page.delete': async (msg) => {
-    await updatePage(msg.urlKey, () => ({}));  // wait for queued writes so none resurrects the page
-    await chrome.storage.local.remove('page:' + msg.urlKey);
+  'page.delete': (msg) => withDeletion(msg.urlKey, async () => {
+    await cancelRequests(msg.urlKey);
+    await updatePage(msg.urlKey, () => ({ remove: true }));
     return { ok: true };
-  },
+  }),
 
-  'data.deleteAll': async () => {
+  'data.deleteAll': () => withDeletion('*', async () => {
+    await cancelRequests();
+    await Promise.all([...chains.values()]);
     const keys = Object.keys(await chrome.storage.local.get(null)).filter((k) => k.startsWith('page:'));
-    await chrome.storage.local.remove(keys);
+    await Promise.all(keys.map((k) => updatePage(k.slice(5), () => ({ remove: true }))));
     return { ok: true, deleted: keys.length };
-  },
+  }),
 
   'provider.check': async () => {
     const t0 = Date.now();
