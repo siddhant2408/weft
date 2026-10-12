@@ -96,7 +96,7 @@ async function threadSystem(urlKey, tabId, request) {
   let page = await getPage(urlKey);
   if (request.cancelled) return '';
   if (!page.summary) {
-    const r = await summarise(urlKey, tabId);
+    const r = await summarise(urlKey, tabId, true);
     if (request.cancelled) return '';
     if (r.error) return READER_SYS + '\n\n(The article is too long to include and its summary failed; rely on the passage and context.)';
     page = await getPage(urlKey);
@@ -158,14 +158,18 @@ async function withDeletion(urlKey, fn) {
   try { return await fn(); }
   finally { deleting.delete(urlKey); }
 }
-async function withRequest(urlKey, id, fn) {
-  if (isDeleting(urlKey)) return fail('CANCELLED');
+// join: share an in-flight request's result instead of failing BUSY (a thread waiting on the page summary).
+function withRequest(urlKey, id, fn, join) {
+  if (isDeleting(urlKey)) return Promise.resolve(fail('CANCELLED'));
   const key = pendingKey(urlKey, id);
-  if (requests.has(key)) return fail('BUSY');
+  if (requests.has(key)) return join ? requests.get(key).promise : Promise.resolve(fail('BUSY'));
   const request = { key, urlKey, id, cancelled: false };
   requests.set(key, request);
-  try { return await fn(request); }
-  finally { if (requests.get(key) === request) requests.delete(key); }
+  request.promise = (async () => {
+    try { return await fn(request); }
+    finally { if (requests.get(key) === request) requests.delete(key); }
+  })();
+  return request.promise;
 }
 
 async function cancelRequests(urlKey, id) {
@@ -196,7 +200,7 @@ async function withPending(request, fn) {
 }
 
 // Summary always reads the live page (Regenerate exists for "page changed"); the thread snapshot stays put.
-function summarise(urlKey, tabId) {
+function summarise(urlKey, tabId, join) {
   return withRequest(urlKey, 'summary', (request) => withPending(request, async (onText) => {
     const live = await extract(tabId);
     if (request.cancelled) return fail('CANCELLED');
@@ -212,7 +216,7 @@ function summarise(urlKey, tabId) {
     const summary = { text: res.text.trim(), createdAt: new Date().toISOString(), contentHash: live.hash };
     await updatePage(urlKey, (p) => p && ({ save: { ...p, title: p.title || live.title || '', summary } }), request);
     return request.cancelled ? fail('CANCELLED') : { ok: true };
-  }));
+  }), join);
 }
 
 function runThread(urlKey, id, tabId, request) {

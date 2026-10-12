@@ -79,7 +79,9 @@ async function streamRequest(url, init, onData, onText) {
     for await (const ev of sse(res.body)) {
       const delta = onData(ev);
       if (delta === null) { complete = true; break; }
-      if (delta) { text += delta; onText?.(text); }
+      const t = delta?.text ?? delta;  // { text, done } ends the reply on a final chunk that still carries text
+      if (t) { text += t; onText?.(text); }
+      if (delta?.done) { complete = true; break; }
     }
     return complete ? { ok: true, text } : { ok: false, code: 'INCOMPLETE', detail: 'The stream ended before the reply completed.' };
   } catch (e) {
@@ -118,7 +120,7 @@ function anthropic({ system, notes, prompt }, cfg, onText) {
     if (j.type === 'error') throw { code: j.error?.type === 'overloaded_error' ? 'API_DOWN' : 'API_ERROR', detail: j.error?.message || 'stream error' };
     if (j.type === 'content_block_delta' && j.delta?.type === 'text_delta') return j.delta.text;
     if (j.type === 'message_delta' && j.delta?.stop_reason === 'refusal') throw { code: 'REFUSED', detail: j.delta.stop_details?.explanation || '' };
-    if (j.type === 'message_delta' && j.delta?.stop_reason === 'max_tokens') throw { code: 'INCOMPLETE', detail: 'The reply reached the output token limit.' };
+    if (j.type === 'message_delta' && ['max_tokens', 'model_context_window_exceeded'].includes(j.delta?.stop_reason)) throw { code: 'INCOMPLETE', detail: 'The reply reached the output token limit.' };
     if (j.type === 'message_stop') return null;
     return '';
   }, onText);
@@ -143,7 +145,9 @@ function openai({ system, notes, prompt }, cfg, onText) {
     const j = JSON.parse(data);
     if (j.error) throw { code: 'API_ERROR', detail: j.error.message || JSON.stringify(j.error) };
     if (j.choices?.some((c) => c.finish_reason === 'length')) throw { code: 'INCOMPLETE', detail: 'The reply reached the output token limit.' };
-    return j.choices?.[0]?.delta?.content || '';
+    const text = j.choices?.[0]?.delta?.content || '';
+    // Some compatible servers close after finish_reason "stop" without sending [DONE].
+    return j.choices?.[0]?.finish_reason === 'stop' ? { text, done: true } : text;
   }, onText);
 }
 

@@ -117,4 +117,13 @@ await run('deletion during long-article summary also cancels the parent question
   assert.equal(calls.length, 1);
   assert.equal(state['page:' + key], undefined);
 });
+await run('thread on a long article waits for an in-flight summary', async () => {
+  state['page:' + key].article.text = 'a'.repeat(120001);
+  const summary = msg({type: 'page.summarise', urlKey: key, tabId: 1}); await wait(() => calls.length === 1);
+  const question = send();
+  calls[0].finish(); await summary; await wait(() => calls.length === 2);
+  assert.match(calls[1].body.messages[0].content, /<summary title=/);
+  calls[1].finish(); await question;
+  assert.equal(state['page:' + key].qa.messages.at(-1).role, 'assistant');
+});
 console.log('background lifecycle: all passed');
