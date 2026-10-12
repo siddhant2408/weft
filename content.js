@@ -391,9 +391,13 @@
     const state = [];
     if (resolved && h.takeaway) state.push(h_('div', 'takeaway', {}, h_('b', '', { textContent: 'Takeaway' }), h.takeaway));
     if (resolved) state.push(h_('div', 'row', {}, h_('button', 'btn', { type: 'button', textContent: 'Reopen', onclick: () => send({ type: 'thread.reopen', urlKey, id: h.id }) })));
+    if (!busy && h?.messages.at(-1)?.needsPage) {
+      state.push(h_('div', 'row', {}, h_('span', 'grow', { textContent: 'Sends the full page to summarise it.' }),
+        h_('button', 'btn primary', { type: 'button', textContent: 'Share page and retry', onclick: () => retry(true) })));
+    }
     if (ui.error) {
       state.push(h_('div', 'error', { role: 'alert', textContent: ui.error.hint }),
-        h_('div', 'row', {}, h_('button', 'btn', { type: 'button', textContent: 'Retry', onclick: retry })));
+        h_('div', 'row', {}, h_('button', 'btn', { type: 'button', textContent: 'Retry', onclick: () => retry() })));
     }
     if (ui.resolving) state.push(...resolveView(h));
     if (ui.confirmDelete) {
@@ -469,12 +473,13 @@
     renderCard();
   }
 
-  async function retry() {
+  // share: summarise the page first, then re-answer the reply that asked for it.
+  async function retry(share = false) {
     const id = open.id;
     ui.error = null;
     pending.add(id);
     renderCard();
-    const r = await send({ type: 'thread.send', urlKey, id, text: '', ask: true });
+    const r = await send({ type: 'thread.send', urlKey, id, text: '', ask: true, share });
     if (r?.error) { pending.delete(id); if (open?.id === id) ui.error = r.error; }
     renderCard();
   }

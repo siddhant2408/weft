@@ -21,7 +21,7 @@ const page = {
 
 const n = readerNotes(page, null);
 assert.ok(n.startsWith('<reader_notes>') && n.endsWith('</reader_notes>'), n);
-assert.match(n, /Gist: Work on what you are curious about\./);
+assert.ok(!n.includes('Gist'), 'the summary is in the system prompt, not repeated here');
 assert.match(n, /Already concluded:\n- Curiosity beats strategy early on\. \(on "Curiosity is the best guide\."\)/);
 assert.match(n, /Still open:\n- research too\? \(on "The way to figure/, 'latest question per thread');
 assert.ok(!n.includes('circular?'), 'only the latest question');

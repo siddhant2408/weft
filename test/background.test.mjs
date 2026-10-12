@@ -25,7 +25,7 @@ const key = 'https://example.com/article';
 const seed = () => {
   for (const k of Object.keys(state)) delete state[k];
   state.settings = {provider: 'openai', openai: {model: 'test', baseUrl: 'https://example.com/v1'}};
-  state['page:' + key] = {urlKey: key, title: 'Article', article: {text: 'OLD ARTICLE'}, summary: null,
+  state['page:' + key] = {urlKey: key, title: 'Article', article: {text: 'OLD ARTICLE'}, summary: {text: 'GIST'},
     highlights: [{id: 'h', exact: 'passage', context: 'context', start: 0, messages: [], status: 'open'}]};
   calls.length = 0; mirrored.length = 0;
 };
@@ -58,10 +58,11 @@ await run('late old completion cannot affect a recreated page or its new pending
   const old = send(); await wait(() => calls.length === 1);
   await msg({type: 'page.delete', urlKey: key});
   const fresh = send('page', 'new question'); await wait(() => calls.length === 2);
+  calls[1].finish(); await wait(() => calls.length === 3);  // the recreated page has no summary: summarise first
   calls[0].finish(); await old;
   assert.ok(session['pending:qa:' + key]);
   assert.deepEqual(state['page:' + key].qa.messages.map(x => x.content), ['new question']);
-  calls[1].finish(); await fresh;
+  calls[2].finish(); await fresh;
   assert.deepEqual(state['page:' + key].qa.messages.map(x => x.content), ['new question', 'answer']);
 });
 await run('deleting during summary returns cancellation, not an internal error', async () => {
@@ -110,6 +111,7 @@ await run('new requests and notes are rejected while delete-all drains writes', 
   assert.equal(state['page:' + key], undefined);
 });
 await run('threads send the title, never the page, and the summary only once made', async () => {
+  state['page:' + key].summary = null;
   let extracted = 0;
   const original = chrome.tabs.sendMessage;
   chrome.tabs.sendMessage = async (...a) => { extracted++; return original(...a); };
@@ -135,5 +137,34 @@ await run('every page write is mirrored to the native host, in order', async () 
   assert.equal(save.page.highlights[0].status, 'open');
   assert.ok(save.page.updatedAt);
   assert.deepEqual(del, {key: 'page:' + key, page: null});
+});
+await run('page Q&A without a summary summarises first, then answers with it', async () => {
+  state['page:' + key].summary = null;
+  const q = send(); await wait(() => calls.length === 1);
+  assert.match(calls[0].body.messages[0].content, /LIVE ARTICLE/, 'first call is the summary, reading the live page');
+  calls[0].finish(); await wait(() => calls.length === 2);
+  assert.match(calls[1].body.messages[0].content, /<summary>\nanswer/);
+  calls[1].finish(); await q;
+  assert.deepEqual(state['page:' + key].qa.messages.map(x => x.role), ['user', 'assistant']);
+});
+await run('a "need the page" reply becomes a share button; sharing summarises and re-answers', async () => {
+  state['page:' + key].summary = null;
+  const original = globalThis.fetch;
+  let reply = 'Need the rest.\n[[need-page]]';
+  globalThis.fetch = (url, init) => new Promise(resolve => calls.push({ body: JSON.parse(init.body),
+    finish: () => resolve(new Response(`data: ${JSON.stringify({choices: [{delta: {content: reply}}]})}\n\ndata: [DONE]\n\n`)) }));
+  const first = send('h'); await wait(() => calls.length === 1);
+  calls[0].finish(); await first;
+  let h = state['page:' + key].highlights[0];
+  assert.deepEqual(h.messages.at(-1), {...h.messages.at(-1), content: 'Need the rest.', needsPage: true});
+  reply = 'Full answer.';
+  const shared = msg({type: 'thread.send', urlKey: key, id: 'h', text: '', ask: true, share: true});
+  await wait(() => calls.length === 2); calls[1].finish();  // summary
+  await wait(() => calls.length === 3);
+  assert.match(calls[2].body.messages[0].content, /<summary>\nFull answer/);
+  calls[2].finish(); await shared;
+  h = state['page:' + key].highlights[0];
+  assert.deepEqual(h.messages.map(x => x.content), ['question', 'Full answer.'], 'the need-page reply is replaced');
+  globalThis.fetch = original;
 });
 console.log('background lifecycle: all passed');

@@ -103,31 +103,33 @@ const transcript = (t) => t.messages.map((m) => `[${LABEL[m.role]}] ${m.content}
 const passageBlock = (h) => `<passage>${h.exact}</passage>\n<context>${h.context}</context>`;
 const articleBlock = (a, title) => `<article>\n<title>${a.title || title}</title>\n${a.text}${a.truncated ? '\n[article truncated]' : ''}\n</article>`;
 
+// The model ends a reply with this when it needs the page; stripped from the reply, it becomes a "Share page" button.
+const NEED_PAGE = '[[need-page]]';
+const needPageTail = /\s*\[\[[a-z-]*\]?\]?$/;  // hide the marker while it streams in, even half-written
+
 // What a thread sees beyond its passage: the title, and the summary only if the user made one.
 async function threadSystem(urlKey) {
   const page = await getPage(urlKey);
   return [READER_SYS,
     page?.title && `<title>${page.title}</title>`,
     page?.summary ? `<summary>\n${page.summary.text}\n</summary>`
-      : '(The rest of the page is not shared. If the question needs it, say so and suggest pressing Summarise.)',
+      : `(The rest of the page is not shared. If answering needs more of it, say in one line what's missing and end your reply with the line ${NEED_PAGE}; the user then gets a button to share the page.)`,
   ].filter(Boolean).join('\n\n');
 }
 
-// The reader's state of mind on this page: gist, conclusions, open questions. Goes after the article so the
-// article stays a cached prefix; this short block is what changes as they read. The current thread is left out.
+// The reader's state of mind on this page: conclusions and open questions (the summary is already in the system
+// prompt). Goes after the system prompt so that stays a cached prefix. The current thread is left out.
 const snippet = (s, n = 90) => (s.length > n ? s.slice(0, n - 1) + '…' : s);
 export function readerNotes(page, excludeId) {
   if (!page) return '';
-  const tldr = page.summary?.text.match(/^.*TL;DR:?\**\s*(.+)$/im)?.[1].replace(/\*+/g, '').trim();
   const hs = [...page.highlights].sort((a, b) => a.start - b.start).filter((h) => h.id !== excludeId);
   const learned = hs.filter((h) => h.takeaway).map((h) => `- ${h.takeaway} (on "${snippet(h.exact)}")`);
   const open = hs.filter((h) => h.status !== 'resolved').map((h) => {
     const q = h.messages.filter((m) => m.role === 'user').at(-1);
     return q && `- ${snippet(q.content, 200)} (on "${snippet(h.exact)}")`;
   }).filter(Boolean);
-  if (!tldr && !learned.length && !open.length) return '';
+  if (!learned.length && !open.length) return '';
   return ['<reader_notes>',
-    tldr && `Gist: ${tldr}`,
     learned.length && `Already concluded:\n${learned.join('\n')}`,
     open.length && `Still open:\n${open.join('\n')}`,
     '</reader_notes>'].filter(Boolean).join('\n');
@@ -224,11 +226,13 @@ function runThread(urlKey, id, request) {
     const system = await threadSystem(urlKey);
     const notes = readerNotes(await getPage(urlKey), id);
     if (request.cancelled) return fail('CANCELLED');
-    const res = await ask({ system, notes, prompt }, onText);
+    const res = await ask({ system, notes, prompt }, (t) => onText(t.replace(needPageTail, '')));
     if (request.cancelled) return fail('CANCELLED');
     if (!res.ok) return fail(res.code, res.detail);
     const by = replierName(await getSettings());
-    await updateThread(urlKey, id, (x) => { x.messages.push({ role: 'assistant', content: res.text, by, ts: new Date().toISOString() }); }, request);
+    const needsPage = res.text.trimEnd().endsWith(NEED_PAGE);
+    const content = needsPage ? res.text.trimEnd().slice(0, -NEED_PAGE.length).trimEnd() : res.text;
+    await updateThread(urlKey, id, (x) => { x.messages.push({ role: 'assistant', content, by, ts: new Date().toISOString(), ...(needsPage && { needsPage }) }); }, request);
     return request.cancelled ? fail('CANCELLED') : { ok: true };
   });
 }
@@ -287,7 +291,9 @@ const handlers = {
   },
 
   // text + ask:false → note; text + ask:true → question; no text + ask:true → retry the last question.
-  'thread.send': async (msg) => {
+  // share:true → summarise the page first (the user's consent to send it), then re-answer a "need the page" reply.
+  // Asking in the page Q&A thread is itself consent, so it summarises first too.
+  'thread.send': async (msg, sender) => {
     if (isDeleting(msg.urlKey)) return fail('CANCELLED');
     const send = async (request) => {
       const text = String(msg.text || '').trim().slice(0, 20000);
@@ -299,7 +305,17 @@ const handlers = {
         if (request?.cancelled) return fail('CANCELLED');
         if (!ok) return fail('NOT_FOUND', 'This thread no longer exists.');
       }
-      return msg.ask ? runThread(msg.urlKey, msg.id, request) : { ok: true };
+      if (!msg.ask) return { ok: true };
+      if ((msg.share || msg.id === 'page') && !(await getPage(msg.urlKey))?.summary) {
+        const r = await summarise(msg.urlKey, msg.tabId ?? sender.tab?.id);
+        if (request.cancelled) return fail('CANCELLED');
+        if (r.error && msg.share) return r;  // Q&A answers anyway, from the title alone
+      }
+      if (msg.share) {
+        await updateThread(msg.urlKey, msg.id, (t) => { if (t.messages.at(-1)?.needsPage) t.messages.pop(); }, request);
+        if (request.cancelled) return fail('CANCELLED');
+      }
+      return runThread(msg.urlKey, msg.id, request);
     };
     return msg.ask ? withRequest(msg.urlKey, msg.id, send) : send();
   },
