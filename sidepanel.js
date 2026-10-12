@@ -8,6 +8,9 @@ const drafts = {};           // id → unsent composer text
 const errors = {};           // id → {code, hint}
 const resolving = {};        // id → {loading} | {text} | {error}
 const confirmDelete = new Set();
+const changed = {};          // urlKey → page text differs from when the summary was made
+// The summary's in-flight flag is per page; highlight ids are globally unique.
+const pk = (id) => (id === 'summary' ? 'summary:' + urlKey : id);
 
 const $ = (id) => document.getElementById(id);
 const bg = (msg) => chrome.runtime.sendMessage(msg).catch((e) => ({ error: { code: 'INTERNAL', hint: String(e) } }));
@@ -31,6 +34,15 @@ async function setTab(id) {
 async function loadPage() {
   page = urlKey ? (await chrome.storage.local.get('page:' + urlKey))['page:' + urlKey] || null : null;
   render();
+  if (page?.summary && !(urlKey in changed)) checkChanged();
+}
+
+async function checkChanged() {
+  const key = urlKey;
+  changed[key] = false;
+  const res = await bg({ type: 'page.changed', urlKey: key, tabId });
+  changed[key] = !!res?.changed;
+  if (key === urlKey) render();
 }
 
 function setActive(id) {
@@ -46,11 +58,29 @@ async function send(h, ask) {
   if (!text && !ask) return;
   drafts[h.id] = '';
   delete errors[h.id];
-  if (ask) pending.add(h.id);
+  if (ask) pending.add(pk(h.id));
   render();
   const res = await bg({ type: 'thread.send', urlKey, id: h.id, text, ask, tabId });
-  if (res?.error) { errors[h.id] = res.error; pending.delete(h.id); }
+  if (res?.error) { errors[h.id] = res.error; pending.delete(pk(h.id)); }
   render();
+}
+
+async function summarise() {
+  delete errors.summary;
+  pending.add(pk('summary'));
+  activeId = 'summary';
+  render();
+  const res = await bg({ type: 'page.summarise', urlKey, tabId });
+  if (res?.error) errors.summary = res.error;
+  else changed[urlKey] = false;
+  pending.delete(pk('summary'));
+  render();
+}
+
+async function copyNotes(btn) {
+  await navigator.clipboard.writeText(MarginNotes.pageMarkdown(page));
+  btn.textContent = 'Copied ✓';
+  setTimeout(() => { btn.textContent = 'Copy as notes'; }, 1500);
 }
 
 async function startResolve(h) {
@@ -76,6 +106,12 @@ function header() {
   $('meta').textContent = hs.length
     ? `${hs.length} thread${hs.length === 1 ? '' : 's'} · ${takeaways} takeaway${takeaways === 1 ? '' : 's'} · ${open} open`
     : '';
+  const busy = pending.has(pk('summary'));
+  $('tools').replaceChildren(...(urlKey ? [
+    !page?.summary && el('button', { textContent: busy ? 'Summarising…' : 'Summarise page', disabled: busy, onclick: summarise }),
+    (hs.length || page?.summary) && el('button', { textContent: 'Copy as notes', onclick: (e) => copyNotes(e.target) }),
+  ] : []).filter(Boolean),
+  el('button', { textContent: 'All threads', onclick: () => chrome.tabs.create({ url: chrome.runtime.getURL('threads.html') }) }));
 }
 
 function messageView(m) {
@@ -87,9 +123,9 @@ function messageView(m) {
 }
 
 function composer(h) {
-  const busy = pending.has(h.id);
+  const busy = pending.has(pk(h.id));
   const ta = el('textarea', {
-    placeholder: 'Ask about this passage, or jot a note…',
+    placeholder: h.id === 'summary' ? 'Ask about the summary or the page…' : 'Ask about this passage, or jot a note…',
     value: drafts[h.id] || '',
     disabled: busy,
     ariaLabel: 'Message',
@@ -143,7 +179,7 @@ function actions(h) {
     el('span', { className: 'spacer' }),
     resolved
       ? el('button', { textContent: 'Reopen', onclick: () => bg({ type: 'thread.reopen', urlKey, id: h.id }) })
-      : el('button', { textContent: 'Resolve', disabled: pending.has(h.id) || !!resolving[h.id], onclick: () => startResolve(h) }),
+      : el('button', { textContent: 'Resolve', disabled: pending.has(pk(h.id)) || !!resolving[h.id], onclick: () => startResolve(h) }),
     el('button', { className: 'danger', textContent: 'Delete', onclick: () => { confirmDelete.add(h.id); render(); } }));
 }
 
@@ -166,12 +202,12 @@ function card(h) {
       orphans.includes(h.id) && el('span', { className: 'badge warn' }, 'text not found on page'),
       resolved && el('span', { className: 'badge' }, 'resolved'),
       !active && userMsgs > 0 && el('span', {}, `${userMsgs} message${userMsgs === 1 ? '' : 's'}`),
-      !active && pending.has(h.id) && el('span', {}, 'Claude is replying…')),
+      !active && pending.has(pk(h.id)) && el('span', {}, 'Claude is replying…')),
     resolved && h.takeaway && el('div', { className: 'takeaway' }, h.takeaway));
 
   if (active) {
     if (!resolved || h.messages.length) c.append(el('div', { className: 'msgs' }, ...h.messages.map(messageView)));
-    if (pending.has(h.id)) c.append(el('div', { className: 'thinking' }, 'Claude is thinking…'));
+    if (pending.has(pk(h.id))) c.append(el('div', { className: 'thinking' }, 'Claude is thinking…'));
     if (errors[h.id]) {
       c.append(el('div', { className: 'error' }, errors[h.id].hint,
         el('div', {}, el('button', { textContent: 'Retry', onclick: () => send(h, true) }))));
@@ -179,6 +215,43 @@ function card(h) {
     if (resolving[h.id]) c.append(resolveView(h));
     else if (!resolved) c.append(composer(h));
     c.append(actions(h));
+  }
+  return c;
+}
+
+// Pinned at the top: the page summary (or its placeholder while it is generated) with its own thread (spec D11).
+function summaryCard() {
+  const s = page?.summary;
+  const busy = pending.has(pk('summary'));
+  if (!s && !busy && !errors.summary) return null;
+  const active = activeId === 'summary';
+  const t = { id: 'summary', messages: s?.messages || [] };
+  const c = el('section', { className: `card summary${active ? ' active' : ''}`, tabIndex: active ? -1 : 0, ariaLabel: 'Page summary' });
+  if (!active) {
+    c.addEventListener('click', () => setActive('summary'));
+    c.addEventListener('keydown', (e) => e.key === 'Enter' && setActive('summary'));
+  }
+  c.append(el('div', { className: 'label' }, 'Page summary'));
+  if (!s) {
+    c.append(busy ? el('div', { className: 'thinking' }, 'Summarising…') : null,
+      errors.summary && el('div', { className: 'error' }, errors.summary.hint,
+        el('div', {}, el('button', { textContent: 'Retry', onclick: summarise }))));
+    return c;
+  }
+  const body = el('div', { className: 'msg' }, el('div', { className: 'body' }));
+  body.firstChild.innerHTML = MarginNotes.tldr(s.text) && !active ? DOMPurify.sanitize(marked.parseInline(MarginNotes.tldr(s.text))) : md(s.text);
+  c.append(body, el('div', { className: 'badges' },
+    changed[urlKey] && el('span', { className: 'badge warn' }, 'page changed since summary'),
+    !active && t.messages.length > 0 && el('span', {}, `${t.messages.length} message${t.messages.length === 1 ? '' : 's'}`)));
+  if (active) {
+    if (t.messages.length) c.append(el('div', { className: 'msgs' }, ...t.messages.map(messageView)));
+    if (busy) c.append(el('div', { className: 'thinking' }, s ? 'Claude is thinking…' : 'Summarising…'));
+    if (errors.summary) {
+      c.append(el('div', { className: 'error' }, errors.summary.hint,
+        el('div', {}, el('button', { textContent: 'Retry', onclick: () => (t.messages.at(-1)?.role === 'user' ? send(t, true) : summarise()) }))));
+    }
+    c.append(composer(t), el('div', { className: 'row' }, el('span', { className: 'spacer' }),
+      el('button', { textContent: 'Regenerate', disabled: busy, title: 'Re-summarise the current page; clears this thread', onclick: summarise })));
   }
   return c;
 }
@@ -195,11 +268,11 @@ function render() {
     return;
   }
   const hs = [...(page?.highlights || [])].sort((a, b) => a.start - b.start);
-  if (!hs.length) {
-    list.replaceChildren(el('p', { className: 'empty' }, 'Select text on the page and click Ask to start a thread.'));
-    return;
-  }
-  list.replaceChildren(...hs.map(card));
+  list.replaceChildren(...[
+    summaryCard(),
+    ...hs.map(card),
+    !hs.length && el('p', { className: 'empty' }, 'Select text on the page and click Ask to start a thread.'),
+  ].filter(Boolean));
 
   const ta = document.querySelector('.card.active textarea');
   if (ta && (refocus || !ta.value)) {

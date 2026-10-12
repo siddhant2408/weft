@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Margin · All threads</title>
+<style>
+  :root {
+    --bg: #fafaf7; --card: #fff; --ink: #1f1f1f; --muted: #6b6b6b; --line: #e6e4dc;
+    --hl: #fff1a8; --hl-strong: #ffd84d; --accent: #8a6d00;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #1b1b19; --card: #252522; --ink: #ecebe6; --muted: #a3a29b; --line: #3a3934;
+      --hl: #4a4220; --hl-strong: #6b5d1f; --accent: #e8c84a; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.5 system-ui, sans-serif; }
+  .wrap { max-width: 820px; margin: 0 auto; padding: 24px 16px 64px; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .meta { color: var(--muted); font-size: 13px; }
+  .bar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 16px 0 20px; position: sticky; top: 0;
+    background: var(--bg); padding: 8px 0; z-index: 1; }
+  input[type=search] { flex: 1; min-width: 180px; font: inherit; padding: 6px 10px; border-radius: 6px;
+    border: 1px solid var(--line); background: var(--card); color: var(--ink); }
+  input[type=search]:focus { outline: 2px solid var(--hl-strong); outline-offset: -1px; }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+  .seg button { border: 0; border-radius: 0; }
+  .seg button[aria-pressed=true] { background: var(--hl-strong); color: #1f1f1f; font-weight: 600; }
+  button { font: inherit; font-size: 13px; padding: 5px 10px; border-radius: 6px; border: 1px solid var(--line);
+    background: var(--card); color: var(--ink); cursor: pointer; }
+  button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  section.page { margin-bottom: 28px; }
+  .page-head { display: flex; gap: 8px; align-items: baseline; justify-content: space-between; flex-wrap: wrap;
+    border-bottom: 1px solid var(--line); padding-bottom: 6px; margin-bottom: 10px; }
+  .page-head h2 { font-size: 15px; margin: 0; }
+  .page-head a { color: var(--ink); text-decoration: none; } .page-head a:hover { text-decoration: underline; }
+  .page-head .host { color: var(--muted); font-size: 12px; font-weight: 400; margin-left: 6px; }
+  .item { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; margin-bottom: 8px; }
+  .quote { border-left: 3px solid var(--hl-strong); padding-left: 8px; color: var(--muted); font-style: italic;
+    display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+  .takeaway { margin-top: 6px; font-weight: 500; } .takeaway::before { content: "✓ "; color: var(--accent); }
+  .open-q { margin-top: 6px; } .open-q::before { content: "? "; color: var(--accent); font-weight: 700; }
+  .foot { display: flex; gap: 12px; margin-top: 6px; font-size: 12px; color: var(--muted); }
+  .foot a { color: var(--accent); }
+  mark { background: var(--hl); color: inherit; }
+  .empty { color: var(--muted); text-align: center; padding: 48px 0; }
+</style>
+<div class="wrap">
+  <h1>All threads</h1>
+  <div class="meta" id="meta"></div>
+  <div class="bar">
+    <input type="search" id="q" placeholder="Search passages, takeaways, messages…" aria-label="Search threads">
+    <div class="seg" role="group" aria-label="Filter">
+      <button data-f="all" aria-pressed="true">All</button><button data-f="open" aria-pressed="false">Open</button><button data-f="resolved" aria-pressed="false">Resolved</button>
+    </div>
+    <button id="export">Export JSON</button>
+  </div>
+  <main id="list"></main>
+</div>
+<script src="notes.js"></script>
+<script src="threads.js"></script>
+</html>

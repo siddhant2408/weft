@@ -17,6 +17,9 @@
   header h1 { font-size: 13px; margin: 0 0 2px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   header .meta { color: var(--muted); font-size: 12px; }
   main { padding: 10px 10px 40px; display: grid; gap: 8px; }
+  .tools { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+  .card.summary { border-left: 3px solid var(--accent); }
+  .label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--accent); margin-bottom: 4px; }
   .empty { color: var(--muted); padding: 24px 8px; text-align: center; }
   .card { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; cursor: pointer; }
   .card.active { border-color: var(--hl-strong); box-shadow: 0 0 0 2px var(--hl); cursor: default; }
@@ -52,9 +55,10 @@
   button:disabled { opacity: .5; cursor: default; }
   button:focus-visible, .card:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 </style>
-<header><h1 id="title">Margin</h1><div class="meta" id="meta"></div></header>
+<header><h1 id="title">Margin</h1><div class="meta" id="meta"></div><div class="tools" id="tools"></div></header>
 <main id="list"></main>
 <script src="vendor/marked.min.js"></script>
 <script src="vendor/purify.min.js"></script>
+<script src="notes.js"></script>
 <script src="sidepanel.js"></script>
 </html>
