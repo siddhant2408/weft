@@ -15,13 +15,13 @@ assert.deepEqual(connections(pages, 'b', 'b4'), []);
 assert.deepEqual(connections(pages, 'a', 'missing'), []);
 console.log('graph: all passed');
 
-// Graph view: only concepts shared by two or more threads; threads touching none are left out.
+// Graph view: every tagged thread is a node; pairs sharing concepts are linked, untagged threads left out.
 const items = pages.flatMap((page) => page.highlights.map((h) => ({ page, h })));
 const g = graphData(items);
-assert.deepEqual(g.concepts.map((c) => [c.label, c.n]), [['MVCC', 3], ['Row locking', 2]]);
-assert.deepEqual(g.threads.map((t) => t.h.id), ['a1', 'a2', 'b2']);
-assert.equal(g.edges.length, 5);
-const pos = layout(g.threads.length + g.concepts.length, g.edges.map(([t, c]) => [t, g.threads.length + c]));
-assert.deepEqual(pos, layout(5, g.edges.map(([t, c]) => [t, 3 + c])), 'deterministic');
+assert.deepEqual(g.threads.map((t) => t.h.id), ['a1', 'a2', 'b1', 'b2', 'b3']);
+assert.deepEqual(g.edges.map(([i, j, s]) => [g.threads[i].h.id, g.threads[j].h.id, s]),
+  [['a1', 'a2', ['MVCC']], ['a1', 'b2', ['MVCC', 'Row locking']], ['a2', 'b2', ['mvcc']]]);
+const pos = layout(g.threads.length, g.edges);
+assert.deepEqual(pos, layout(5, g.edges), 'deterministic');
 assert.ok(pos.every((q) => Number.isFinite(q.x) && Number.isFinite(q.y)));
 console.log('graph view: all passed');

@@ -44,36 +44,35 @@ export function connections(pages, urlKey, id, max = 5) {
   return out.sort((a, b) => b.shared.length - a.shared.length || (b.createdAt || '').localeCompare(a.createdAt || '')).slice(0, max);
 }
 
-// The graph view's data: concepts shared by at least two of the given threads, and the threads that touch them.
-// items: [{page, h}]. Returns {concepts: [{key, label, n}], threads: [{page, h}], edges: [[threadIndex, conceptIndex]]}.
+// The graph view's data: every tagged thread is a node; two threads are linked when they share concepts.
+// items: [{page, h}]. Returns {threads: [{page, h}], edges: [[i, j, sharedLabels]]}.
+// ponytail: compares every pair; fine to a few thousand threads.
 export function graphData(items) {
-  const byKey = new Map();
-  for (const it of items) for (const k of new Set((it.h.concepts || []).map(norm))) {
-    const label = it.h.concepts.find((c) => norm(c) === k);
-    byKey.get(k)?.items.push(it) ?? byKey.set(k, { key: k, label, items: [it] });
+  const threads = items.filter((it) => it.h.concepts?.length);
+  const keys = threads.map((it) => new Map(it.h.concepts.map((c) => [norm(c), c])));
+  const edges = [];
+  for (let i = 0; i < threads.length; i++) for (let j = i + 1; j < threads.length; j++) {
+    const shared = [...keys[i]].filter(([k]) => keys[j].has(k)).map(([, c]) => c);
+    if (shared.length) edges.push([i, j, shared]);
   }
-  const concepts = [...byKey.values()].filter((c) => c.items.length >= 2);
-  const threads = [...new Set(concepts.flatMap((c) => c.items))];
-  const ix = new Map(threads.map((t, i) => [t, i]));
-  const edges = concepts.flatMap((c, ci) => c.items.map((t) => [ix.get(t), ci]));
-  return { concepts: concepts.map(({ key, label, items }) => ({ key, label, n: items.length })), threads, edges };
+  return { threads, edges };
 }
 
 // Force-directed layout (Fruchterman–Reingold with a pull to the centre), deterministic: same input, same picture.
 // ponytail: O(n²) per step; fine to ~1,500 nodes, switch to a quadtree (d3-force) beyond that.
 // mass[i] scales how hard node i pushes others away; hubs get more so their labels don't collide.
 export function layout(n, edges, iterations = 300, mass = []) {
-  const k = 55;
+  const k = 110;
   const p = Array.from({ length: n }, (_, i) => ({ x: Math.cos(i * 2.4) * 12 * Math.sqrt(i + 1), y: Math.sin(i * 2.4) * 12 * Math.sqrt(i + 1) }));
   let t = 40;
   for (let it = 0; it < iterations; it++) {
-    const d = p.map((q) => ({ x: -q.x * 0.04 * k, y: -q.y * 0.04 * k }));  // gravity keeps islands near
+    const d = p.map((q) => ({ x: -q.x * 0.003 * k, y: -q.y * 0.003 * k }));  // gravity keeps islands near
     for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) {
       const dx = p[i].x - p[j].x, dy = p[i].y - p[j].y, dist = Math.hypot(dx, dy) || 0.01, f = (k * k * (mass[i] || 1) * (mass[j] || 1)) / dist;
       d[i].x += (dx / dist) * f; d[i].y += (dy / dist) * f; d[j].x -= (dx / dist) * f; d[j].y -= (dy / dist) * f;
     }
     for (const [a, b] of edges) {
-      const dx = p[a].x - p[b].x, dy = p[a].y - p[b].y, dist = Math.hypot(dx, dy) || 0.01, f = (dist * dist) / k;
+      const dx = p[a].x - p[b].x, dy = p[a].y - p[b].y, dist = Math.hypot(dx, dy) || 0.01, f = (dist * dist) / k / 6;
       d[a].x -= (dx / dist) * f; d[a].y -= (dy / dist) * f; d[b].x += (dx / dist) * f; d[b].y += (dy / dist) * f;
     }
     for (let i = 0; i < n; i++) {

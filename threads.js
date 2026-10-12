@@ -1,8 +1,8 @@
-// Every thread across every page, newest page first, as a list or as a graph of shared concepts.
+// Every thread across every page, newest page first, as a list or as a graph linking threads that share concepts.
 // Read-only view over chrome.storage.local.
-import { graphData, layout, norm } from './graph.js';
+import { graphData, layout } from './graph.js';
 
-let pages = [], filter = 'all', query = '', view = 'list', concept = null;  // concept: norm key filtering the list
+let pages = [], filter = 'all', query = '', view = 'list';
 const $ = (id) => document.getElementById(id);
 const el = (tag, props = {}, ...kids) => {
   const n = Object.assign(document.createElement(tag), props);
@@ -17,9 +17,7 @@ async function load() {
   render();
 }
 
-const showConcept = (key) => { concept = key; setView('list'); };
 const matches = (h, page) => {
-  if (concept && !(h.concepts || []).some((c) => norm(c) === concept)) return false;
   if (filter === 'open' && h.status === 'resolved') return false;
   if (filter === 'resolved' && h.status !== 'resolved') return false;
   if (!query) return true;
@@ -53,7 +51,7 @@ const miniBar = (hs) => {
 
 const COPY = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 5.5V4A1.5 1.5 0 0 0 9 2.5H4A1.5 1.5 0 0 0 2.5 4v5A1.5 1.5 0 0 0 4 10.5h1.5"/></svg>';
 
-// Concepts are labelled hubs; threads are dots (yellow open, green resolved) joined to the concepts they share.
+// Threads are the nodes (yellow open, green resolved); a link means two threads share concepts, thicker for more.
 const NS = 'http://www.w3.org/2000/svg';
 const s_ = (tag, attrs = {}, ...kids) => {
   const n = document.createElementNS(NS, tag);
@@ -65,63 +63,60 @@ const clip = (s, n) => (s.length > n ? s.slice(0, n - 1) + '…' : s);
 
 function graphView(items) {
   const g = graphData(items);
-  const untagged = items.filter((it) => !it.h.concepts).length;
+  const untagged = items.length - g.threads.length;
+  const T = g.threads.length;
+  const degree = Array(T).fill(0);
+  for (const [i, j] of g.edges) { degree[i]++; degree[j]++; }
+  const alone = degree.filter((d) => !d).length;
   const note = [
     untagged && `${untagged} thread${untagged === 1 ? '' : 's'} not tagged yet (open one's card to tag older threads).`,
-    items.length - untagged - g.threads.length > 0 && `${items.length - untagged - g.threads.length} share no concept with another thread yet.`,
+    alone && `${alone} not linked to another thread yet.`,
   ].filter(Boolean).join(' ');
-  if (!g.concepts.length) {
+  if (!g.edges.length) {
     return [el('div', { className: 'graph-card' }, el('div', { className: 'empty' }, el('b', { textContent: 'No connections yet' }),
-      'Two threads link when they share a concept. Comment on a few related pages and they appear here.'),
+      'Two threads link when they\'re about the same idea. Comment on a few related pages and the links appear here.'),
       note && el('p', { className: 'graph-note', textContent: note }))];
   }
-  const T = g.threads.length;
-  const pos = layout(T + g.concepts.length, g.edges.map(([t, c]) => [t, T + c]), 300, [...Array(T).fill(1), ...g.concepts.map(() => 2.5)]);
-  const svg = s_('svg', { class: 'graph', role: 'img', 'aria-label': `${g.concepts.length} concepts linking ${T} threads` });
-  const lines = g.edges.map(([t, c]) => s_('line', { x1: pos[t].x, y1: pos[t].y, x2: pos[T + c].x, y2: pos[T + c].y }));
-  const dots = g.threads.map(({ page, h }, i) => s_('a', { href: MarginNotes.fragmentUrl(page.urlKey, h.exact), target: '_blank', class: 'thread' },
-    s_('title', {}, `${clip(h.takeaway || h.exact, 160)}\n${page.title || page.urlKey}`),
-    s_('circle', { cx: pos[i].x, cy: pos[i].y, r: 4, class: h.status === 'resolved' ? 'done' : 'open' })));
-  const labels = [];  // drawn above every dot so no node hides another's name
-  const hubs = g.concepts.map((c, ci) => {
-    const p = pos[T + ci], r = 4 + 1.5 * Math.sqrt(c.n);
-    const text = s_('text', { x: p.x, y: p.y + r + 13, class: 'label' }, clip(c.label, 32));
-    labels.push(text);
-    const hub = s_('g', { class: 'concept', tabindex: 0, role: 'button', 'aria-label': `${c.label}: ${c.n} threads` }, s_('circle', { cx: p.x, cy: p.y, r }));
-    for (const n of [hub, text]) n.addEventListener('click', () => showConcept(c.key));
-    hub.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); showConcept(c.key); } });
-    return hub;
-  });
-  svg.append(s_('g', {}, ...lines), s_('g', {}, ...dots), s_('g', {}, ...hubs), s_('g', {}, ...labels));
 
-  // Hovering any node lights it, its links and its neighbours, and dims the rest (as in Obsidian).
-  const nodes = [...dots, ...hubs];
+  const pos = layout(T, g.edges);
+  const svg = s_('svg', { class: 'graph', role: 'img', 'aria-label': `${T} threads, ${g.edges.length} links` });
+  const lines = g.edges.map(([i, j, shared]) => s_('line', { x1: pos[i].x, y1: pos[i].y, x2: pos[j].x, y2: pos[j].y, 'stroke-width': Math.min(4, shared.length) }));
+  // Why two threads are linked: shown at the link's midpoint while either end is hovered.
+  const whys = g.edges.map(([i, j, shared]) => s_('text', { x: (pos[i].x + pos[j].x) / 2, y: (pos[i].y + pos[j].y) / 2 - 4, class: 'why' }, `via ${clip(shared.join(', '), 40)}`));
+  const dots = g.threads.map(({ page, h }, i) => s_('a', { href: MarginNotes.fragmentUrl(page.urlKey, h.exact), target: '_blank', class: 'thread' },
+    s_('title', {}, `${h.exact}\n\n${page.title || page.urlKey}`),
+    s_('circle', { cx: pos[i].x, cy: pos[i].y, r: 4 + Math.min(4, Math.sqrt(degree[i]) * 1.5), class: h.status === 'resolved' ? 'done' : 'open' })));
+  const labels = g.threads.map(({ h }, i) => s_('text', { x: pos[i].x, y: pos[i].y + 4 + Math.min(4, Math.sqrt(degree[i]) * 1.5) + 13, class: 'label' },
+    clip(h.takeaway || h.exact, 30)));
+  svg.append(s_('g', {}, ...lines), s_('g', {}, ...dots), s_('g', {}, ...labels), s_('g', {}, ...whys));
+
+  // Hovering a thread lights it, its links (with their reasons) and the threads it links to; the rest dims.
   const focus = (n, on) => {
     svg.classList.toggle('focusing', on);
-    g.edges.forEach(([t, c], e) => {
-      const hit = on && (n === t || n === T + c);
-      lines[e].classList.toggle('lit', hit);
-      if (hit) { nodes[t].classList.add('lit'); nodes[T + c].classList.add('lit'); labels[c].classList.add('lit'); }
+    for (const x of [...dots, ...labels, ...lines, ...whys]) x.classList.remove('lit');
+    if (!on) return;
+    for (const x of [dots[n], labels[n]]) x.classList.add('lit');
+    g.edges.forEach(([i, j], e) => {
+      if (i !== n && j !== n) return;
+      const o = i === n ? j : i;
+      for (const x of [lines[e], whys[e], dots[o], labels[o]]) x.classList.add('lit');
     });
-    if (!on) for (const x of [...nodes, ...labels]) x.classList.remove('lit');
-    nodes[n].classList.toggle('lit', on);
-    if (n >= T) labels[n - T].classList.toggle('lit', on);
   };
-  nodes.forEach((x, n) => {
+  for (const [list] of [[dots], [labels]]) list.forEach((x, n) => {
     for (const [ev, on] of [['mouseenter', true], ['mouseleave', false], ['focus', true], ['blur', false]]) x.addEventListener(ev, () => focus(n, on));
   });
-  labels.forEach((x, c) => { x.addEventListener('mouseenter', () => focus(T + c, true)); x.addEventListener('mouseleave', () => focus(T + c, false)); });
+  labels.forEach((x, n) => x.addEventListener('click', () => window.open(dots[n].getAttribute('href'), '_blank', 'noopener')));
 
   // Real-pixel scale: text stays 11px however few nodes there are. Fit only shrinks; scroll zooms, drag pans.
   const W = $('list').clientWidth || 720, H = Math.round(Math.min(innerHeight * 0.68, 620));
   svg.style.height = H + 'px';
-  const xs = pos.map((p) => p.x), ys = pos.map((p) => p.y), pad = 60;
+  const xs = pos.map((p) => p.x), ys = pos.map((p) => p.y), pad = 90;
   let cx = (Math.min(...xs) + Math.max(...xs)) / 2, cy = (Math.min(...ys) + Math.max(...ys)) / 2;
   let zoom = Math.min(1, W / (Math.max(...xs) - Math.min(...xs) + 2 * pad), H / (Math.max(...ys) - Math.min(...ys) + 2 * pad));
   const frame = () => {
     const w = (svg.clientWidth || W) / zoom, h = H / zoom;
     svg.setAttribute('viewBox', `${cx - w / 2} ${cy - h / 2} ${w} ${h}`);
-    svg.classList.toggle('far', zoom < 0.6);  // labels fade when zoomed far out
+    svg.classList.toggle('far', zoom < 0.95);  // labels only when zoomed in, or for the hovered thread and its links
   };
   frame();
   svg.addEventListener('wheel', (e) => {
@@ -134,7 +129,7 @@ function graphView(items) {
   }, { passive: false });
   let drag = null;
   svg.addEventListener('pointerdown', (e) => {
-    if (e.target.closest('.thread, .concept, .label')) return;
+    if (e.target.closest('.thread, .label')) return;
     drag = { x: e.clientX, y: e.clientY };
     svg.setPointerCapture(e.pointerId);
     svg.classList.add('panning');
@@ -150,11 +145,11 @@ function graphView(items) {
   svg.addEventListener('pointercancel', stop);
 
   const legend = el('div', { className: 'graph-legend' },
-    el('span', {}, el('span', { className: 'dot c' }), `${g.concepts.length} shared concept${g.concepts.length === 1 ? '' : 's'}`),
     el('span', {}, el('span', { className: 'dot o' }), 'Open thread'),
-    el('span', {}, el('span', { className: 'dot d' }), 'Resolved thread'));
+    el('span', {}, el('span', { className: 'dot d' }), 'Resolved thread'),
+    el('span', { className: 'faint' }, `${g.edges.length} link${g.edges.length === 1 ? '' : 's'} · threads link when they share an idea`));
   return [el('div', { className: 'graph-card' }, legend, svg,
-    el('p', { className: 'graph-note', textContent: ['Scroll to zoom, drag to pan. Click a concept to list its threads, or a dot to open its passage.', note].filter(Boolean).join(' ') }))];
+    el('p', { className: 'graph-note', textContent: ['Hover a thread to see what it links to and why. Click to open its passage. Scroll to zoom, drag to pan.', note].filter(Boolean).join(' ') }))];
 }
 
 function setView(v) {
@@ -178,9 +173,6 @@ function render() {
   ] : []));
 
   const filtered = pages.flatMap((page) => page.highlights.filter((h) => matches(h, page)).map((h) => ({ page, h })));
-  const label = concept && filtered.flatMap((it) => it.h.concepts || []).find((c) => norm(c) === concept);
-  $('concept').replaceChildren(...(concept ? [el('button', { className: 'chip on', title: 'Clear concept filter', textContent: `${label || concept} ×`,
-    onclick: () => { concept = null; render(); } })] : []));
   if (view === 'graph') { $('list').replaceChildren(...graphView(filtered).filter(Boolean)); return; }
 
   const sections = [];
