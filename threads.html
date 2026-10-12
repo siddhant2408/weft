@@ -25,6 +25,21 @@
   .item .foot { display: flex; gap: 12px; margin-top: 6px; font-size: 12px; color: var(--faint); align-items: center; }
   .item .foot a { color: var(--soft); }
   .item.resolved .quote { opacity: .75; }
+  .chips { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 6px; }
+  .chip { font-size: 12px; line-height: 18px; padding: 1px 8px; border-radius: 10px; background: var(--hover); color: var(--soft); }
+  .chip:hover { background: var(--press); color: var(--ink); }
+  .chip.on { background: var(--hl-bg); color: var(--ink); box-shadow: inset 0 0 0 1px var(--hl-line); }
+  .graph { display: block; width: 100%; height: min(72vh, 680px); margin-top: 16px; border-radius: 12px; background: var(--bg-soft); }
+  .graph line { stroke: var(--line); stroke-width: 1.2; }
+  .graph circle.open { fill: var(--open); } .graph circle.done { fill: var(--done); }
+  .graph .thread:hover circle { stroke: var(--ink); stroke-width: 1.5; }
+  .graph .concept { cursor: pointer; outline: none; }
+  .graph .concept circle { fill: var(--bg); stroke: var(--soft); stroke-width: 1.5; }
+  .graph .label { cursor: pointer; fill: var(--ink); font-size: 12px; font-weight: 600; text-anchor: middle; paint-order: stroke; stroke: var(--bg-soft); stroke-width: 4px; }
+  .graph .concept:hover circle, .graph .concept:focus-visible circle { stroke: var(--blue); stroke-width: 2.5; }
+  .graph.focusing line:not(.lit), .graph.focusing .thread:not(.lit), .graph.focusing .concept:not(.lit), .graph.focusing .label:not(.lit) { opacity: .15; }
+  .graph line.lit { stroke: var(--soft); }
+  .graph-note { color: var(--faint); font-size: 13px; margin: 8px 0 0; }
   @media (max-width: 520px) { .wrap { padding: 28px 16px 64px; } h1 { font-size: 24px; } }
 </style>
 <div class="wrap">
@@ -35,10 +50,14 @@
     <div class="seg" role="group" aria-label="Filter">
       <button data-f="all" aria-pressed="true">All</button><button data-f="open" aria-pressed="false">Open</button><button data-f="resolved" aria-pressed="false">Resolved</button>
     </div>
+    <div class="seg view" role="group" aria-label="View">
+      <button data-v="list" aria-pressed="true">List</button><button data-v="graph" aria-pressed="false">Graph</button>
+    </div>
+    <span id="concept"></span>
     <div class="links"><button class="btn plain" id="export">Export JSON</button><a class="btn plain" href="options.html">Settings</a></div>
   </div>
   <main id="list"></main>
 </div>
 <script src="notes.js"></script>
-<script src="threads.js"></script>
+<script type="module" src="threads.js"></script>
 </html>
