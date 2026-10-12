@@ -117,6 +117,12 @@
 
     .takeaway { margin: 6px 14px 4px; padding: 8px 10px; border-radius: 8px; background: var(--hl); border-left: 3px solid var(--hl-line); }
     .takeaway b { display: block; font-size: 12px; color: var(--soft); font-weight: 600; margin-bottom: 2px; }
+    .links { margin: 6px 14px 2px; padding-top: 8px; border-top: 1px solid var(--line); }
+    .links b { display: block; font-size: 12px; color: var(--soft); font-weight: 600; margin-bottom: 2px; }
+    .link { display: block; padding: 5px 6px; margin: 0 -6px; border-radius: 6px; color: inherit; text-decoration: none; }
+    .link:hover { background: var(--hover); }
+    .link .q { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; font-size: 13px; }
+    .link .src { display: block; font-size: 12px; color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .state { padding: 0 14px; }
     .state:empty { display: none; }
     .error { color: var(--err); font-size: 13px; padding: 4px 0; }
@@ -243,7 +249,7 @@
   // open = { id } for a saved thread, or { id: null, draft: { selector, context, range } } before the first message.
   let open = null, card = null;
   let cardLift = 0;  // px the card sits above its natural spot, so it fits at the end of a short page
-  let ui = {};  // per-card transient state: noteMode, error, resolving, confirmDelete
+  let ui = {};  // per-card transient state: noteMode, error, resolving, confirmDelete, links
 
   function openCard(target) {
     if (open && !open.draft && target.id === open.id) return;
@@ -251,7 +257,7 @@
     wrap.classList.toggle('dark', pageIsDark());
     open = target;
     cardLift = 0;
-    ui = { noteMode: false, error: null, resolving: null, confirmDelete: false };
+    ui = { noteMode: false, error: null, resolving: null, confirmDelete: false, links: [], linksFor: null };
     if (!target.draft) regDraft.clear();
 
     const ta = h_('textarea', '', { rows: 1, ariaLabel: 'Comment' });
@@ -401,6 +407,7 @@
     if (atBottom || busy) card.scroll.scrollTop = card.scroll.scrollHeight;
 
     const state = [];
+    if (ui.links.length) state.push(linksView(ui.links));
     if (resolved && h.takeaway) state.push(h_('div', 'takeaway', {}, h_('b', '', { textContent: 'Takeaway' }), h.takeaway));
     if (resolved) state.push(h_('div', 'row', {}, h_('button', 'btn', { type: 'button', textContent: 'Reopen', onclick: () => send({ type: 'thread.reopen', urlKey, id: h.id }) })));
     if (!busy && h?.messages.at(-1)?.needsPage) {
@@ -418,6 +425,7 @@
         h_('button', 'btn danger', { type: 'button', textContent: 'Delete', onclick: () => send({ type: 'highlight.delete', urlKey, id: h.id }) })));
     }
     card.state.replaceChildren(...state);
+    fetchLinks(h);
 
     card.composer.classList.toggle('hidden', resolved || !!ui.resolving);
     card.ta.disabled = busy;
@@ -426,6 +434,29 @@
     card.autosize();
     // focus inside a closed shadow root reports the host as the active element
     if (document.activeElement === root && card.el.getBoundingClientRect().height !== lastCardHeight) requestAnimationFrame(revealCard);
+  }
+
+  // Threads on other pages that share a concept with this one. Asked again whenever this thread's concepts change.
+  function fetchLinks(h) {
+    const sig = h && h.messages.some((m) => m.role === 'assistant') ? h.id + '|' + (h.concepts || []).join('|') : null;
+    if (!sig || sig === ui.linksFor) return;
+    ui.linksFor = sig;
+    send({ type: 'thread.connections', urlKey, id: h.id }).then((res) => {
+      if (open?.id !== h.id || ui.linksFor !== sig) return;
+      ui.links = res?.links || [];
+      renderCard();
+    });
+  }
+
+  function linksView(links) {
+    return h_('div', 'links', {}, h_('b', '', { textContent: 'Related threads' }),
+      ...links.slice(0, 3).map((l) => {
+        let host = '';
+        try { host = new URL(l.urlKey).hostname.replace(/^www\./, ''); } catch {}
+        return h_('a', 'link', { href: MarginNotes.fragmentUrl(l.urlKey, l.exact), target: '_blank', rel: 'noopener', title: l.title || host },
+          h_('span', 'q', { textContent: l.takeaway || l.exact }),
+          h_('span', 'src', { textContent: `${l.title || host} · via ${l.shared.join(', ')}` }));
+      }));
   }
 
   function resolveView(h) {

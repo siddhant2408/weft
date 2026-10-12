@@ -42,7 +42,7 @@ var MarginNotes = (() => {
     const pages = Object.entries(storage).filter(([k, p]) => k.startsWith('page:') && p).map(([, p]) => ({
       ...pick(p, ['urlKey', 'title', 'updatedAt']),
       highlights: (p.highlights || []).map((h) => ({
-        ...pick(h, ['id', 'exact', 'prefix', 'suffix', 'start', 'end', 'context', 'status', 'takeaway', 'createdAt']),
+        ...pick(h, ['id', 'exact', 'prefix', 'suffix', 'start', 'end', 'context', 'status', 'takeaway', 'concepts', 'createdAt']),
         messages: messages(h.messages),
       })),
       ...(p.qa ? { qa: { messages: messages(p.qa.messages) } } : {}),

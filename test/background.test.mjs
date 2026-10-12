@@ -14,7 +14,12 @@ globalThis.chrome = {
     sendNativeMessage: (host, m, cb) => { mirrored.push(m.mirror); setTimeout(() => cb({ok: true})); } },
   tabs: { sendMessage: async () => ({title: 'Article', text: 'LIVE ARTICLE'}) },
 };
-globalThis.fetch = (url, init) => new Promise(resolve => calls.push({
+const tagCalls = [];
+let tagReply = '';  // empty → no concepts, no write: keeps other tests' storage and mirror order untouched
+const sse = text => new Response(`data: ${JSON.stringify({choices: [{delta: {content: text}}]})}\n\ndata: [DONE]\n\n`);
+globalThis.fetch = (url, init) => JSON.parse(init.body).messages[0].content.startsWith('You tag')
+  ? (tagCalls.push(JSON.parse(init.body)), Promise.resolve(sse(tagReply)))
+  : new Promise(resolve => calls.push({
   body: JSON.parse(init.body),
   finish: () => resolve(new Response('data: {"choices":[{"delta":{"content":"answer"}}]}\n\ndata: [DONE]\n\n')),
 }));
@@ -27,7 +32,7 @@ const seed = () => {
   state.settings = {provider: 'openai', openai: {model: 'test', baseUrl: 'https://example.com/v1'}};
   state['page:' + key] = {urlKey: key, title: 'Article', article: {text: 'OLD ARTICLE'}, summary: {text: 'GIST'},
     highlights: [{id: 'h', exact: 'passage', context: 'context', start: 0, messages: [], status: 'open'}]};
-  calls.length = 0; mirrored.length = 0;
+  calls.length = 0; mirrored.length = 0; tagCalls.length = 0; tagReply = '';
 };
 const send = (id = 'page', text = 'question') => msg({type: 'thread.send', urlKey: key, id, text, ask: true, tabId: 1});
 const run = async (name, fn) => { seed(); await fn(); console.log('PASS', name); };
@@ -151,7 +156,7 @@ await run('a "need the page" reply becomes a share button; sharing summarises an
   state['page:' + key].summary = null;
   const original = globalThis.fetch;
   let reply = 'Need the rest.\n[[need-page]]';
-  globalThis.fetch = (url, init) => new Promise(resolve => calls.push({ body: JSON.parse(init.body),
+  globalThis.fetch = (url, init) => JSON.parse(init.body).messages[0].content.startsWith('You tag') ? original(url, init) : new Promise(resolve => calls.push({ body: JSON.parse(init.body),
     finish: () => resolve(new Response(`data: ${JSON.stringify({choices: [{delta: {content: reply}}]})}\n\ndata: [DONE]\n\n`)) }));
   const first = send('h'); await wait(() => calls.length === 1);
   calls[0].finish(); await first;
@@ -166,5 +171,19 @@ await run('a "need the page" reply becomes a share button; sharing summarises an
   h = state['page:' + key].highlights[0];
   assert.deepEqual(h.messages.map(x => x.content), ['question', 'Full answer.'], 'the need-page reply is replaced');
   globalThis.fetch = original;
+});
+await run('first reply tags the thread with concepts, reusing known ones; page Q&A is not tagged', async () => {
+  state['page:https://other.com/x'] = {urlKey: 'https://other.com/x', title: 'Other', highlights: [
+    {id: 'o', exact: 'other passage', start: 0, messages: [{role: 'assistant', content: 'a'}], concepts: ['MVCC'], status: 'open', createdAt: '2026-01-01'}]};
+  tagReply = '- MVCC\n2. Row locking\nmvcc\n';
+  const first = send('h'); await wait(() => calls.length === 1); calls[0].finish(); await first;
+  await wait(() => state['page:' + key].highlights[0].concepts);
+  assert.deepEqual(state['page:' + key].highlights[0].concepts, ['MVCC', 'Row locking']);
+  assert.match(tagCalls[0].messages[0].content, /<known_concepts>\nMVCC\n<\/known_concepts>/);
+  const res = await msg({type: 'thread.connections', urlKey: key, id: 'h'});
+  assert.deepEqual(res.links.map(l => [l.id, l.shared]), [['o', ['MVCC']]]);
+  const qa = send(); await wait(() => calls.length === 2); calls[1].finish(); await qa;
+  await new Promise(r => setTimeout(r, 20));
+  assert.equal(tagCalls.length, 1);
 });
 console.log('background lifecycle: all passed');
