@@ -230,6 +230,7 @@
   // ---------- the comment card ----------
   // open = { id } for a saved thread, or { id: null, draft: { selector, context, range } } before the first message.
   let open = null, card = null;
+  let cardLift = 0;  // px the card sits above its natural spot, so it fits at the end of a short page
   let ui = {};  // per-card transient state: noteMode, error, resolving, confirmDelete
 
   function openCard(target) {
@@ -237,6 +238,7 @@
     ensureRoot();
     wrap.classList.toggle('dark', pageIsDark());
     open = target;
+    cardLift = 0;
     ui = { noteMode: false, error: null, resolving: null, confirmDelete: false };
     if (!target.draft) regDraft.clear();
 
@@ -274,6 +276,8 @@
     syncActive();
     layout();
     renderCard();
+    card.scroll.scrollTop = card.scroll.scrollHeight;  // open at the latest comment; scroll up for history
+    requestAnimationFrame(revealCard);
     if (target.id) {
       chrome.storage.session.get([`pending:${target.id}`, `stream:${target.id}`]).then((s) => {
         if (s[`pending:${target.id}`]) pending.add(target.id);
@@ -308,7 +312,33 @@
     if (right + 16 + W <= vw - 8) { x = right + 16; y = first.top - 8; }
     else { x = Math.min(Math.max(8, last.left), vw - W - 8); y = last.bottom + 8; }
     card.el.style.left = `${x + scrollX}px`;
-    card.el.style.top = `${Math.max(0, y + scrollY)}px`;
+    card.el.style.top = `${Math.max(0, y + scrollY - cardLift)}px`;
+  }
+
+  // Keep the whole card on screen: if it runs past the bottom of the window (long thread, or a passage
+  // near the bottom), scroll the page just enough, never so far that the card's top leaves the view.
+  let lastCardHeight = 0;
+  function revealCard() {
+    if (!card) return;
+    const r = card.el.getBoundingClientRect();
+    lastCardHeight = r.height;
+    const pad = 16;
+    let dy = 0;
+    if (r.bottom > innerHeight - pad) dy = Math.min(r.bottom - innerHeight + pad, r.top - pad);
+    else if (r.top < pad) dy = r.top - pad;
+    if (!dy) return;
+    // Near the end of a short page the window can't scroll that far: lift the card by the remainder.
+    // Measure the page without the card, which otherwise extends it and skews the answer.
+    card.el.style.display = 'none';
+    const pageH = document.documentElement.scrollHeight;
+    card.el.style.display = '';
+    const room = pageH - innerHeight - scrollY;
+    if (dy > room) {
+      cardLift += dy - Math.max(0, room);
+      placeCard();
+      dy = Math.max(0, room);
+    }
+    if (dy) scrollBy({ top: dy, behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
   }
 
   const ago = (ts) => {
@@ -378,6 +408,8 @@
     card.sendBtn.disabled = busy;
     card.ta.placeholder = ui.noteMode ? 'Add a note…' : h?.messages.length ? `Reply, or ask ${replier} a follow-up…` : `Ask ${replier} about this…`;
     card.autosize();
+    // focus inside a closed shadow root reports the host as the active element
+    if (document.activeElement === root && card.el.getBoundingClientRect().height !== lastCardHeight) requestAnimationFrame(revealCard);
   }
 
   function resolveView(h) {
