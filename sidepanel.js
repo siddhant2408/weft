@@ -8,6 +8,8 @@ const drafts = {};           // id → unsent composer text
 const errors = {};           // id → {code, hint}
 const resolving = {};        // id → {loading} | {text} | {error}
 const confirmDelete = new Set();
+const streams = {};         // pending key → partial reply while an API provider streams
+let replier = 'Claude';      // who answers, from settings
 const changed = {};          // urlKey → page text differs from when the summary was made
 // The summary's in-flight flag is per page; highlight ids are globally unique.
 const pk = (id) => (id === 'summary' ? 'summary:' + urlKey : id);
@@ -28,6 +30,7 @@ async function setTab(id) {
   activeId = s['active:' + id] || null;
   pending.clear();
   for (const k in s) if (k.startsWith('pending:') && live(s[k])) pending.add(k.slice(8));
+  for (const k in s) if (k.startsWith('stream:')) streams[k.slice(7)] = s[k];
   await loadPage();
 }
 
@@ -134,11 +137,22 @@ function pageDelete() {
 }
 
 function messageView(m) {
-  const who = { user: 'You', assistant: 'Claude', note: 'Note' }[m.role];
+  const who = { user: 'You', assistant: m.by || replier, note: 'Note' }[m.role];
   const body = el('div', { className: 'body' });
   if (m.role === 'assistant') body.innerHTML = md(m.content);
   else body.textContent = m.content;
   return el('div', { className: 'msg ' + m.role }, el('div', { className: 'who' }, who), body);
+}
+
+// While waiting: the streamed partial reply if the provider streams, else a placeholder.
+function thinking(id) {
+  const partial = streams[pk(id)];
+  return partial ? messageView({ role: 'assistant', content: partial + ' ▍' }) : el('div', { className: 'thinking' }, `${replier} is thinking…`);
+}
+function summaryStream() {
+  const body = el('div', { className: 'body' });
+  body.innerHTML = md(streams[pk('summary')] + ' ▍');
+  return el('div', { className: 'msg' }, body);
 }
 
 function composer(h) {
@@ -160,7 +174,7 @@ function composer(h) {
       el('span', { className: 'hint' }, '↵ note · ⌘↵ ask · ⇧↵ newline'),
       el('span', { className: 'spacer' }),
       el('button', { textContent: 'Note', disabled: busy, onclick: () => send(h, false) }),
-      el('button', { className: 'primary', textContent: 'Ask Claude', disabled: busy,
+      el('button', { className: 'primary', textContent: `Ask ${replier}`, disabled: busy,
         onclick: () => (drafts[h.id] || '').trim() && send(h, true) })));
 }
 
@@ -221,12 +235,12 @@ function card(h) {
       orphans.includes(h.id) && el('span', { className: 'badge warn' }, 'text not found on page'),
       resolved && el('span', { className: 'badge' }, 'resolved'),
       !active && userMsgs > 0 && el('span', {}, `${userMsgs} message${userMsgs === 1 ? '' : 's'}`),
-      !active && pending.has(pk(h.id)) && el('span', {}, 'Claude is replying…')),
+      !active && pending.has(pk(h.id)) && el('span', {}, `${replier} is replying…`)),
     resolved && h.takeaway && el('div', { className: 'takeaway' }, h.takeaway));
 
   if (active) {
     if (!resolved || h.messages.length) c.append(el('div', { className: 'msgs' }, ...h.messages.map(messageView)));
-    if (pending.has(pk(h.id))) c.append(el('div', { className: 'thinking' }, 'Claude is thinking…'));
+    if (pending.has(pk(h.id))) c.append(thinking(h.id));
     if (errors[h.id]) {
       c.append(el('div', { className: 'error' }, errors[h.id].hint,
         el('div', {}, el('button', { textContent: 'Retry', onclick: () => send(h, true) }))));
@@ -252,7 +266,7 @@ function summaryCard() {
   }
   c.append(el('div', { className: 'label' }, 'Page summary'));
   if (!s) {
-    c.append(busy ? el('div', { className: 'thinking' }, 'Summarising…') : null,
+    c.append(busy ? (streams[pk('summary')] ? summaryStream() : el('div', { className: 'thinking' }, 'Summarising…')) : null,
       errors.summary && el('div', { className: 'error' }, errors.summary.hint,
         el('div', {}, el('button', { textContent: 'Retry', onclick: summarise }))));
     return c;
@@ -264,7 +278,7 @@ function summaryCard() {
     !active && t.messages.length > 0 && el('span', {}, `${t.messages.length} message${t.messages.length === 1 ? '' : 's'}`)));
   if (active) {
     if (t.messages.length) c.append(el('div', { className: 'msgs' }, ...t.messages.map(messageView)));
-    if (busy) c.append(el('div', { className: 'thinking' }, s ? 'Claude is thinking…' : 'Summarising…'));
+    if (busy) c.append(thinking('summary'));
     if (errors.summary) {
       c.append(el('div', { className: 'error' }, errors.summary.hint,
         el('div', {}, el('button', { textContent: 'Retry', onclick: () => (t.messages.at(-1)?.role === 'user' ? send(t, true) : summarise()) }))));
@@ -303,7 +317,14 @@ function render() {
 }
 
 // --- wiring ---
+function setReplier(settings) {
+  const o = settings?.provider === 'openai' && settings.openai?.model;
+  replier = o ? o.split('/').pop() : 'Claude';
+}
+chrome.storage.local.get('settings').then(({ settings }) => { setReplier(settings); render(); });
+
 chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === 'local' && changes.settings) { setReplier(changes.settings.newValue); render(); }
   if (area === 'local' && urlKey && changes['page:' + urlKey]) {
     page = changes['page:' + urlKey].newValue || null;
     render();
@@ -313,6 +334,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
   for (const [k, { newValue }] of Object.entries(changes)) {
     if (k === 'tab:' + tabId) { ({ urlKey = null, orphans = [] } = newValue || {}); loadPage(); }
     else if (k === 'active:' + tabId) { activeId = newValue || null; dirty = true; }
+    else if (k.startsWith('stream:')) { if (newValue) streams[k.slice(7)] = newValue; else delete streams[k.slice(7)]; dirty = true; }
     else if (k.startsWith('pending:')) { newValue && live(newValue) ? pending.add(k.slice(8)) : pending.delete(k.slice(8)); dirty = true; }
   }
   if (dirty) render();

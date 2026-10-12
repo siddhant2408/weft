@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Margin",
-  "version": "0.0.5",
+  "version": "0.0.6",
   "description": "Comment threads on anything you read, where the replies come from AI.",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAtjYpv1uT2gRG5KYucUeSuTXO+0/mPSBpa9PORKScYWfPrVo2pyBxd4ftoQAjPZmJ0goxe7W3xw3ZsDTK7ib3rJpf9chQsG7vuczjRbky2SIqCcjiPfKb972XaBxmKPpiPKQM0RnabXJ2T/PCTi9jsEVJEVXSF5H00RpzcTHiReWM1lp9G1O+yOIh8tr/ZVRidANgZv5m/NTlvX5M17/tqdNCFYaWBr5ohZyIBLh4dqyBs8jRqhCNPhCRp6jMn8gqSHZ1WelfJLmWj5Ox16p5HjV5+trdDbHU0kVWNB+kjIu7eB+8J0zsDhjZe7iMiWLLRQrY7uS8t6pYiowXrg5yfQIDAQAB",
   "permissions": [
@@ -41,5 +41,15 @@
   "options_ui": {
     "page": "options.html",
     "open_in_tab": true
-  }
+  },
+  "host_permissions": [
+    "https://api.anthropic.com/*",
+    "https://openrouter.ai/*",
+    "https://api.openai.com/*"
+  ],
+  "optional_host_permissions": [
+    "https://*/*",
+    "http://localhost/*",
+    "http://127.0.0.1/*"
+  ]
 }

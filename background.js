@@ -1,6 +1,6 @@
 import { normaliseUrl } from './url.js';
+import { ask, getSettings, replierName } from './providers.js';
 
-const HOST = 'com.margin.host';
 const THREAD_MAX_CHARS = 120000;   // ≈30k tokens: above this, threads get the summary instead (spec D10)
 const SNAPSHOT_MAX_CHARS = 400000; // ≈100k tokens: what the summary call itself may read
 
@@ -10,21 +10,19 @@ const HINTS = {
   NOT_LOGGED_IN: 'Claude Code is logged out. Run `claude` once in Terminal and log in.',
   TIMEOUT: 'Claude took longer than 2 minutes. Try again.',
   NO_ARTICLE: 'Couldn\'t read this page. Reload the tab and try again.',
+  NO_KEY: 'No API key set. Add one in Settings.',
+  NO_MODEL: 'No model set. Pick one in Settings.',
+  BAD_KEY: 'The API key was rejected. Check it in Settings.',
+  BAD_MODEL: 'The provider doesn\'t know that model. Check the model name in Settings.',
+  RATE_LIMIT: 'Rate limited by the provider. Wait a moment and retry.',
+  API_DOWN: 'The provider is overloaded or down. Retry in a bit.',
+  NETWORK: 'Couldn\'t reach the provider. Check your connection.',
+  REFUSED: 'The model declined to answer this one.',
 };
-const fail = (code, detail) => ({ error: { code, hint: HINTS[code] || detail || code } });
+const fail = (code, detail) => ({ error: { code, hint: (HINTS[code] && detail && /^API_|REFUSED/.test(code) ? `${HINTS[code]} (${detail})` : HINTS[code]) || detail || code } });
 
 chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => {});
 
-// Native messaging errors only surface as lastError strings; map the common one to a fix.
-function askHost(req) {
-  return new Promise((resolve) => {
-    chrome.runtime.sendNativeMessage(HOST, req, (res) => {
-      const err = chrome.runtime.lastError;
-      if (err) resolve({ ok: false, code: /not found|forbidden/i.test(err.message) ? 'HOST_MISSING' : 'HOST_ERROR', detail: err.message });
-      else resolve(res);
-    });
-  });
-}
 
 // --- Storage: this worker is the only writer; read-modify-write is serialised per page (spec §4) ---
 const chains = new Map();
@@ -110,23 +108,32 @@ async function ensureArticle(urlKey, tabId) {
   return article;
 }
 
-// pending:<key> marks a model call in flight so the panel can show "thinking" across reopenings.
+// pending:<key> marks a model call in flight so the panel can show "thinking" across reopenings;
+// stream:<key> holds the partial reply while an API provider streams (throttled; also keeps the worker awake).
 const pendingKey = (urlKey, id) => (id === 'summary' ? 'summary:' + urlKey : id);
 async function withPending(key, fn) {
   await chrome.storage.session.set({ ['pending:' + key]: Date.now() });
-  try { return await fn(); } finally { await chrome.storage.session.remove('pending:' + key); }
+  let latest = '', timer = null;
+  const flush = () => { timer = null; chrome.storage.session.set({ ['stream:' + key]: latest }); };
+  const onText = (t) => { latest = t; timer ||= setTimeout(flush, 150); };
+  try {
+    return await fn(onText);
+  } finally {
+    clearTimeout(timer);
+    await chrome.storage.session.remove(['stream:' + key, 'pending:' + key]);
+  }
 }
 
 // Summary always reads the live page (Regenerate exists for "page changed"); the thread snapshot stays put.
 function summarise(urlKey, tabId) {
-  return withPending(pendingKey(urlKey, 'summary'), async () => {
+  return withPending(pendingKey(urlKey, 'summary'), async (onText) => {
     const live = await extract(tabId);
     if (!live) return fail('NO_ARTICLE');
     await updatePage(urlKey, (p) => {
       p ||= { urlKey, title: live.title || '', summary: null, highlights: [] };
       return { save: p.article ? p : { ...p, article: live } };
     });
-    const res = await askHost({ system: READER_SYS + '\n\n' + articleBlock(live, ''), prompt: SUMMARY_TASK });
+    const res = await ask({ system: READER_SYS + '\n\n' + articleBlock(live, ''), prompt: SUMMARY_TASK }, onText);
     if (!res.ok) return fail(res.code, res.detail);
     const summary = { text: res.text.trim(), createdAt: new Date().toISOString(), contentHash: live.hash, messages: [] };
     await updatePage(urlKey, (p) => ({ save: { ...p, title: p.title || live.title || '', summary } }));
@@ -135,15 +142,16 @@ function summarise(urlKey, tabId) {
 }
 
 function runThread(urlKey, id, tabId) {
-  return withPending(pendingKey(urlKey, id), async () => {
+  return withPending(pendingKey(urlKey, id), async (onText) => {
     const t = findThread(await getPage(urlKey), id);
     if (!t) return fail('NOT_FOUND', 'This thread no longer exists.');
     if (t.messages.at(-1)?.role !== 'user') return { ok: true };  // nothing to answer
     const anchor = id === 'summary' ? `<summary>${t.text}</summary>` : passageBlock(t);
     const prompt = `${anchor}\n\nThread so far, oldest first:\n\n${transcript(t)}\n\nReply to my latest message.`;
-    const res = await askHost({ system: await threadSystem(urlKey, tabId), prompt });
+    const res = await ask({ system: await threadSystem(urlKey, tabId), prompt }, onText);
     if (!res.ok) return fail(res.code, res.detail);
-    await updateThread(urlKey, id, (x) => { x.messages.push({ role: 'assistant', content: res.text, ts: new Date().toISOString() }); });
+    const by = replierName(await getSettings());
+    await updateThread(urlKey, id, (x) => { x.messages.push({ role: 'assistant', content: res.text, by, ts: new Date().toISOString() }); });
     return { ok: true };
   });
 }
@@ -219,7 +227,7 @@ const handlers = {
     const h = findThread(await getPage(msg.urlKey), msg.id);
     if (!h) return fail('NOT_FOUND', 'This thread no longer exists.');
     if (!h.messages.length) return { draft: '' };
-    const res = await askHost({ system: TAKEAWAY_SYS, prompt: `${passageBlock(h)}\n\nThread:\n\n${transcript(h)}` });
+    const res = await ask({ system: TAKEAWAY_SYS, prompt: `${passageBlock(h)}\n\nThread:\n\n${transcript(h)}` });
     return res.ok ? { draft: res.text.trim().split('\n')[0] } : fail(res.code, res.detail);
   },
 
@@ -235,9 +243,9 @@ const handlers = {
     return { ok: true, deleted: keys.length };
   },
 
-  'host.check': async () => {
+  'provider.check': async () => {
     const t0 = Date.now();
-    const res = await askHost({ system: 'Reply tersely.', prompt: 'Reply with exactly: ok' });
+    const res = await ask({ system: 'Reply tersely.', prompt: 'Reply with exactly: ok' });
     return res.ok ? { ok: true, ms: Date.now() - t0 } : fail(res.code, res.detail);
   },
 
