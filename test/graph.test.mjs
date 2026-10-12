@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { connections, graphData, layout, parseConcepts, vocabulary } from '../graph.js';
+import { connections, graphData, layout, parseConcepts, relatedFor, vocabulary } from '../graph.js';
 
 assert.deepEqual(parseConcepts('1. MVCC\n- Row locking.\n* "Postgres"\nmvcc\n\n' + 'x'.repeat(61) + '\nA\nB\nC'), ['MVCC', 'Row locking', 'Postgres', 'A', 'B']);
 
@@ -13,6 +13,12 @@ assert.deepEqual(vocabulary(pages, 2), ['MVCC', 'Row locking']);
 assert.deepEqual(connections(pages, 'a', 'a1').map((l) => [l.id, l.shared]), [['b2', ['MVCC', 'Row locking']]]);
 assert.deepEqual(connections(pages, 'b', 'b4'), []);
 assert.deepEqual(connections(pages, 'a', 'missing'), []);
+// Before a thread has concepts, related threads come from known concepts mentioned in its text (whole words only).
+const fresh = [...pages, { urlKey: 'c', title: 'C', highlights: [{ id: 'c1', exact: 'new', messages: [] }] }];
+assert.deepEqual(relatedFor(fresh, 'c', 'c1', 'How does MVCC relate to row-locking?').map((l) => [l.id, l.shared]),
+  [['b2', ['row locking', 'MVCC']], ['a1', ['MVCC', 'Row locking']], ['a2', ['mvcc']]]);
+assert.deepEqual(relatedFor(fresh, 'c', 'c1', 'mvccx'), []);
+assert.deepEqual(relatedFor(pages, 'a', 'a1', '').map((l) => l.id), ['b2'], 'tagged threads use their concepts');
 console.log('graph: all passed');
 
 // Graph view: every tagged thread is a node; pairs sharing concepts are linked, untagged threads left out.

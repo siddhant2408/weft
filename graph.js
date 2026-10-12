@@ -38,7 +38,7 @@ export function connections(pages, urlKey, id, max = 5) {
     for (const x of p.highlights) {
       const theirs = new Set((x.concepts || []).map(norm));
       const shared = [...mine].filter(([k]) => theirs.has(k)).map(([, c]) => c);
-      if (shared.length) out.push({ urlKey: p.urlKey, title: p.title, id: x.id, exact: x.exact, takeaway: x.takeaway, status: x.status, createdAt: x.createdAt, shared });
+      if (shared.length) out.push({ urlKey: p.urlKey, title: p.title, id: x.id, exact: x.exact, takeaway: x.takeaway, status: x.status, createdAt: x.createdAt, messages: x.messages, shared });
     }
   }
   return out.sort((a, b) => b.shared.length - a.shared.length || (b.createdAt || '').localeCompare(a.createdAt || '')).slice(0, max);
@@ -82,4 +82,22 @@ export function layout(n, edges, iterations = 300, mass = []) {
     t = Math.max(1, t * 0.985);
   }
   return p;
+}
+
+// Threads on other pages to give the model as context for this one. Once tagged, by shared concepts; before its
+// first reply (no concepts yet), by known concepts that appear in its passage, context and question.
+export function relatedFor(pages, urlKey, id, text, max = 5) {
+  const h = pages.find((p) => p.urlKey === urlKey)?.highlights.find((x) => x.id === id);
+  if (h?.concepts?.length) return connections(pages, urlKey, id, max);
+  const hay = ` ${norm(text)} `;
+  const out = [];
+  for (const p of pages) {
+    if (p.urlKey === urlKey) continue;
+    for (const x of p.highlights) {
+      const seen = new Set();
+      const shared = (x.concepts || []).filter((c) => { const k = norm(c); return k && hay.includes(` ${k} `) && !seen.has(k) && seen.add(k); });
+      if (shared.length) out.push({ urlKey: p.urlKey, title: p.title, id: x.id, exact: x.exact, takeaway: x.takeaway, status: x.status, createdAt: x.createdAt, messages: x.messages, shared });
+    }
+  }
+  return out.sort((a, b) => b.shared.length - a.shared.length || (b.createdAt || '').localeCompare(a.createdAt || '')).slice(0, max);
 }

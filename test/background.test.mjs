@@ -186,4 +186,15 @@ await run('first reply tags the thread with concepts, reusing known ones; page Q
   await new Promise(r => setTimeout(r, 20));
   assert.equal(tagCalls.length, 1);
 });
+await run('threads on other pages about the same idea reach the model: takeaways and open questions', async () => {
+  state['page:https://other.com/x'] = {urlKey: 'https://other.com/x', title: 'Other', highlights: [
+    {id: 'o1', exact: 'other passage', start: 0, status: 'resolved', takeaway: 'Readers never block writers.', concepts: ['MVCC'], messages: [{role: 'user', content: 'q'}], createdAt: '2026-01-02'},
+    {id: 'o2', exact: 'second', start: 1, status: 'open', takeaway: null, concepts: ['MVCC'], messages: [{role: 'user', content: 'What does vacuum clean up?'}], createdAt: '2026-01-01'},
+    {id: 'o3', exact: 'unrelated', start: 2, status: 'open', concepts: ['Raft'], messages: [], createdAt: '2026-01-03'}]};
+  const q = send('h', 'How does MVCC work here?'); await wait(() => calls.length === 1);
+  const sys = calls[0].body.messages[0].content;
+  assert.match(sys, /<related_threads>\n- Concluded: Readers never block writers\. \(on "other passage" in "Other"; shared: MVCC\)\n- Asked, still open: What does vacuum clean up\?/);
+  assert.doesNotMatch(sys, /unrelated/);
+  calls[0].finish(); await q;
+});
 console.log('background lifecycle: all passed');
