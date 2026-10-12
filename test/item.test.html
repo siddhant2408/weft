@@ -1,0 +1,85 @@
+<!doctype html>
+<!-- itemText: what context a highlight sends. Run: test/run-anchor.sh item.test.html -->
+<meta charset="utf-8">
+<title>item test</title>
+<body>
+<main>
+  <!-- Article: long body, so a paragraph is the item. -->
+  <div id="article" class="post-body">
+    <h1>The economics of attention</h1>
+    <p>Most readers skim. Only one in five finished past the third paragraph.</p>
+    <p class="filler"></p>
+  </div>
+
+  <!-- Docs: nested sections; the smallest section with enough text wins. -->
+  <article id="docs">
+    <section><h2>Networking</h2>
+      <section id="retries"><h3>Configuring retries</h3>
+        <p>Set maxRetries to control how often a failed request is retried.</p>
+        <p>Backoff doubles each time, starting at 200 ms and capped at 30 seconds, so a flaky upstream is not hammered while it recovers from load.</p>
+      </section>
+      <section><h3>Timeouts</h3><p>Requests time out after 120 seconds unless overridden per call.</p></section>
+    </section>
+  </article>
+
+  <!-- LinkedIn-like feed: div soup with scrambled classes; posts are 3+ same-class siblings. -->
+  <div id="feed">
+    <div class="x7a q2"><div class="h9"><span>Acme Corp</span> · <span>Senior Backend Engineer</span> · Remote</div>
+      <div class="b3"><span>We are hiring an engineer to own our payments platform, from API design to on-call.</span>
+        <ul><li>5+ years with Go or Rust</li><li>Experience with distributed systems</li><li>Bonus: fintech background</li></ul>
+        <span>Apply via the link or message the hiring manager directly with a short note about your work.</span></div></div>
+    <div class="x7a q2"><div class="h9"><span>Globex</span> · <span>Product Designer</span></div>
+      <div class="b3"><span>Globex is looking for a designer who loves systems thinking and has shipped consumer products at scale. Portfolio required; we review every application within a week.</span></div></div>
+    <div class="x7a q2"><div class="h9"><span>Initech</span> · <span>Data Analyst</span></div>
+      <div class="b3"><span>Initech needs an analyst comfortable with SQL, dashboards and talking to stakeholders who do not know what they want yet. Hybrid, three days a week in office.</span></div></div>
+  </div>
+
+  <!-- HN-like comments: table rows. -->
+  <table id="hn"><tbody>
+    <tr class="athing comtr"><td><span class="hnuser">pg</span> 2 hours ago<div class="commtext">The interesting part of this essay is not the conclusion but how the author got there, by noticing which assumptions everyone else treated as fixed.</div></td></tr>
+    <tr class="athing comtr"><td><span class="hnuser">dang</span> 1 hour ago<div class="commtext">Please keep comments on topic; the thread about the title is getting long and is drifting into a debate nobody here can settle with evidence.</div></td></tr>
+    <tr class="athing comtr"><td><span class="hnuser">tptacek</span> 40 minutes ago<div class="commtext">Short and right.</div></td></tr>
+  </tbody></table>
+
+  <!-- One giant paragraph: trimmed to a window around the highlight. -->
+  <p id="giant"></p>
+</main>
+<pre id="result">RUNNING</pre>
+<script src="../anchor.js"></script>
+<script>
+(() => {
+  const A = MarginAnchor, fails = [], out = [];
+  document.querySelector('.filler').textContent = 'Filler sentence about attention spans. '.repeat(80);
+  document.getElementById('giant').textContent = 'Lorem ipsum dolor sit amet. '.repeat(100) + 'NEEDLE in the middle. ' + 'Consectetur adipiscing elit. '.repeat(100);
+
+  function rangeOf(needle) {
+    const w = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    for (let n; (n = w.nextNode());) {
+      const i = n.data.indexOf(needle);
+      if (i >= 0) { const r = document.createRange(); r.setStart(n, i); r.setEnd(n, i + needle.length); return r; }
+    }
+    throw Error('needle not found: ' + needle);
+  }
+  const cases = [
+    // name, highlight, must include, must not include
+    ['article paragraph', 'Only one in five', ['Most readers skim.'], ['Filler', 'economics']],
+    ['docs subsection', 'maxRetries', ['Configuring retries', 'Backoff doubles'], ['Timeouts', 'Networking']],
+    ['feed requirement bullet', 'Go or Rust', ['Acme Corp', 'Senior Backend Engineer', 'hiring manager'], ['Globex', 'Initech']],
+    ['feed body', 'payments platform', ['Acme Corp'], ['Globex']],
+    ['hn comment', 'assumptions everyone', ['pg', '2 hours ago'], ['dang', 'on topic']],
+    ['giant paragraph', 'NEEDLE', ['NEEDLE in the middle.'], []],
+  ];
+  for (const [name, needle, yes, no] of cases) {
+    try {
+      const text = A.itemText(rangeOf(needle), needle);
+      out.push(`${name} (${text.length} chars): ${text.slice(0, 90)}…`);
+      if (text.length > 2000) fails.push(`${name}: ${text.length} chars > 2000`);
+      for (const s of yes) if (!text.includes(s)) fails.push(`${name}: missing "${s}"`);
+      for (const s of no) if (text.includes(s)) fails.push(`${name}: leaked "${s}"`);
+    } catch (e) { fails.push(`${name}: ${e.message}`); }
+  }
+  document.getElementById('result').textContent =
+    (fails.length ? 'FAIL\n' + fails.join('\n') : `PASS ${cases.length}/${cases.length}`) + '\n\n' + out.join('\n');
+})();
+</script>
+</body>

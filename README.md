@@ -8,7 +8,7 @@ Comment threads on anything you read, where the replies come from AI. Spec: Noti
 3. Default model is Claude Code (`~/.local/bin/claude`, logged in). Or Settings → Model: Anthropic API key, or any OpenAI-compatible API (OpenRouter, OpenAI, Ollama, LM Studio).
 
 ## Checks
-- `for t in test/*.test.mjs; do node $t; done` and `test/run-anchor.sh`: unit + anchoring tests.
+- `for t in test/*.test.mjs; do node $t; done` and `test/run-anchor.sh` (plus `test/run-anchor.sh item.test.html` for highlight context): unit + anchoring tests.
 - `python3 native-host/test_host.py`: host round-trip, prompt-injection (no tools), bad request.
 - `python3 native-host/test_mirror.py`: SQLite mirror save/overwrite/delete (no Claude needed).
 - Host log: `~/Library/Logs/margin-host.log` (no prompt text).

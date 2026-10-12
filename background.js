@@ -282,7 +282,7 @@ const handlers = {
     const { exact, prefix, suffix, start, end } = msg.selector;
     const highlight = {
       id: crypto.randomUUID(), exact, prefix, suffix, start, end,
-      context: String(msg.context || '').slice(0, 1500),
+      context: String(msg.context || '').slice(0, 2000),
       messages: [], status: 'open', takeaway: null, createdAt: new Date().toISOString(),
     };
     const res = await updatePage(urlKey, (page) => {
