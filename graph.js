@@ -63,7 +63,7 @@ export function graphData(items) {
 // ponytail: O(n²) per step; fine to ~1,500 nodes, switch to a quadtree (d3-force) beyond that.
 // mass[i] scales how hard node i pushes others away; hubs get more so their labels don't collide.
 export function layout(n, edges, iterations = 300, mass = []) {
-  const k = 40;
+  const k = 55;
   const p = Array.from({ length: n }, (_, i) => ({ x: Math.cos(i * 2.4) * 12 * Math.sqrt(i + 1), y: Math.sin(i * 2.4) * 12 * Math.sqrt(i + 1) }));
   let t = 40;
   for (let it = 0; it < iterations; it++) {

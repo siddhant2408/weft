@@ -77,45 +77,84 @@ function graphView(items) {
   }
   const T = g.threads.length;
   const pos = layout(T + g.concepts.length, g.edges.map(([t, c]) => [t, T + c]), 300, [...Array(T).fill(1), ...g.concepts.map(() => 2.5)]);
-  const xs = pos.map((p) => p.x), ys = pos.map((p) => p.y), pad = 70;
-  const box = [Math.min(...xs) - pad, Math.min(...ys) - pad, Math.max(...xs) - Math.min(...xs) + 2 * pad, Math.max(...ys) - Math.min(...ys) + 2 * pad];
-  const svg = s_('svg', { viewBox: box.join(' '), class: 'graph', role: 'img', 'aria-label': `${g.concepts.length} concepts linking ${T} threads` });
-  const lines = g.edges.map(([t, c]) => s_('line', { x1: pos[t].x, y1: pos[t].y, x2: pos[T + c].x, y2: pos[T + c].y, 'data-t': t, 'data-c': c }));
-  svg.append(s_('g', { class: 'edges' }, ...lines));
-  const dots = g.threads.map(({ page, h }, i) => s_('a', { href: MarginNotes.fragmentUrl(page.urlKey, h.exact), target: '_blank', class: 'thread', 'data-t': i },
+  const svg = s_('svg', { class: 'graph', role: 'img', 'aria-label': `${g.concepts.length} concepts linking ${T} threads` });
+  const lines = g.edges.map(([t, c]) => s_('line', { x1: pos[t].x, y1: pos[t].y, x2: pos[T + c].x, y2: pos[T + c].y }));
+  const dots = g.threads.map(({ page, h }, i) => s_('a', { href: MarginNotes.fragmentUrl(page.urlKey, h.exact), target: '_blank', class: 'thread' },
     s_('title', {}, `${clip(h.takeaway || h.exact, 160)}\n${page.title || page.urlKey}`),
-    s_('circle', { cx: pos[i].x, cy: pos[i].y, r: 5, class: h.status === 'resolved' ? 'done' : 'open' })));
-  svg.append(s_('g', {}, ...dots));
-  const labels = [];  // drawn above every circle so no hub hides another's name
+    s_('circle', { cx: pos[i].x, cy: pos[i].y, r: 4, class: h.status === 'resolved' ? 'done' : 'open' })));
+  const labels = [];  // drawn above every dot so no node hides another's name
   const hubs = g.concepts.map((c, ci) => {
-    const p = pos[T + ci], r = 6 + 3 * Math.sqrt(c.n);
-    const hub = s_('g', { class: 'concept', tabindex: 0, role: 'button', 'aria-label': `${c.label}: ${c.n} threads` }, s_('circle', { cx: p.x, cy: p.y, r }));
-    const text = s_('text', { x: p.x, y: p.y - r - 5, class: 'label' }, clip(c.label, 28));
+    const p = pos[T + ci], r = 4 + 1.5 * Math.sqrt(c.n);
+    const text = s_('text', { x: p.x, y: p.y + r + 13, class: 'label' }, clip(c.label, 32));
     labels.push(text);
-    text.addEventListener('click', () => showConcept(c.key));
-    hub.addEventListener('click', () => showConcept(c.key));
+    const hub = s_('g', { class: 'concept', tabindex: 0, role: 'button', 'aria-label': `${c.label}: ${c.n} threads` }, s_('circle', { cx: p.x, cy: p.y, r }));
+    for (const n of [hub, text]) n.addEventListener('click', () => showConcept(c.key));
     hub.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); showConcept(c.key); } });
-    // Hovering a concept dims everything it isn't joined to.
-    const near = new Set(g.edges.filter(([, x]) => x === ci).map(([t]) => t));
-    const focus = (on) => {
-      svg.classList.toggle('focusing', on);
-      for (const l of lines) l.classList.toggle('lit', on && +l.dataset.c === ci);
-      for (const d of dots) d.classList.toggle('lit', on && near.has(+d.dataset.t));
-      hub.classList.toggle('lit', on);
-      text.classList.toggle('lit', on);
-    };
-    for (const n of [hub, text]) { n.addEventListener('mouseenter', () => focus(true)); n.addEventListener('mouseleave', () => focus(false)); }
-    hub.addEventListener('focus', () => focus(true));
-    hub.addEventListener('blur', () => focus(false));
     return hub;
   });
-  svg.append(s_('g', {}, ...hubs), s_('g', {}, ...labels));
+  svg.append(s_('g', {}, ...lines), s_('g', {}, ...dots), s_('g', {}, ...hubs), s_('g', {}, ...labels));
+
+  // Hovering any node lights it, its links and its neighbours, and dims the rest (as in Obsidian).
+  const nodes = [...dots, ...hubs];
+  const focus = (n, on) => {
+    svg.classList.toggle('focusing', on);
+    g.edges.forEach(([t, c], e) => {
+      const hit = on && (n === t || n === T + c);
+      lines[e].classList.toggle('lit', hit);
+      if (hit) { nodes[t].classList.add('lit'); nodes[T + c].classList.add('lit'); labels[c].classList.add('lit'); }
+    });
+    if (!on) for (const x of [...nodes, ...labels]) x.classList.remove('lit');
+    nodes[n].classList.toggle('lit', on);
+    if (n >= T) labels[n - T].classList.toggle('lit', on);
+  };
+  nodes.forEach((x, n) => {
+    for (const [ev, on] of [['mouseenter', true], ['mouseleave', false], ['focus', true], ['blur', false]]) x.addEventListener(ev, () => focus(n, on));
+  });
+  labels.forEach((x, c) => { x.addEventListener('mouseenter', () => focus(T + c, true)); x.addEventListener('mouseleave', () => focus(T + c, false)); });
+
+  // Real-pixel scale: text stays 11px however few nodes there are. Fit only shrinks; scroll zooms, drag pans.
+  const W = $('list').clientWidth || 720, H = Math.round(Math.min(innerHeight * 0.68, 620));
+  svg.style.height = H + 'px';
+  const xs = pos.map((p) => p.x), ys = pos.map((p) => p.y), pad = 60;
+  let cx = (Math.min(...xs) + Math.max(...xs)) / 2, cy = (Math.min(...ys) + Math.max(...ys)) / 2;
+  let zoom = Math.min(1, W / (Math.max(...xs) - Math.min(...xs) + 2 * pad), H / (Math.max(...ys) - Math.min(...ys) + 2 * pad));
+  const frame = () => {
+    const w = (svg.clientWidth || W) / zoom, h = H / zoom;
+    svg.setAttribute('viewBox', `${cx - w / 2} ${cy - h / 2} ${w} ${h}`);
+    svg.classList.toggle('far', zoom < 0.6);  // labels fade when zoomed far out
+  };
+  frame();
+  svg.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    const rect = svg.getBoundingClientRect(), ox = e.clientX - rect.left - rect.width / 2, oy = e.clientY - rect.top - rect.height / 2;
+    const mx = cx + ox / zoom, my = cy + oy / zoom;  // keep the point under the cursor still
+    zoom = Math.min(4, Math.max(0.2, zoom * Math.exp(-e.deltaY * 0.0015)));
+    cx = mx - ox / zoom; cy = my - oy / zoom;
+    frame();
+  }, { passive: false });
+  let drag = null;
+  svg.addEventListener('pointerdown', (e) => {
+    if (e.target.closest('.thread, .concept, .label')) return;
+    drag = { x: e.clientX, y: e.clientY };
+    svg.setPointerCapture(e.pointerId);
+    svg.classList.add('panning');
+  });
+  svg.addEventListener('pointermove', (e) => {
+    if (!drag) return;
+    cx -= (e.clientX - drag.x) / zoom; cy -= (e.clientY - drag.y) / zoom;
+    drag = { x: e.clientX, y: e.clientY };
+    frame();
+  });
+  const stop = () => { drag = null; svg.classList.remove('panning'); };
+  svg.addEventListener('pointerup', stop);
+  svg.addEventListener('pointercancel', stop);
+
   const legend = el('div', { className: 'graph-legend' },
-    el('span', {}, el('span', { className: 'ring' }), `${g.concepts.length} shared concept${g.concepts.length === 1 ? '' : 's'}`),
+    el('span', {}, el('span', { className: 'dot c' }), `${g.concepts.length} shared concept${g.concepts.length === 1 ? '' : 's'}`),
     el('span', {}, el('span', { className: 'dot o' }), 'Open thread'),
     el('span', {}, el('span', { className: 'dot d' }), 'Resolved thread'));
   return [el('div', { className: 'graph-card' }, legend, svg,
-    el('p', { className: 'graph-note', textContent: ['Click a concept to list its threads, or a dot to open its passage.', note].filter(Boolean).join(' ') }))];
+    el('p', { className: 'graph-note', textContent: ['Scroll to zoom, drag to pan. Click a concept to list its threads, or a dot to open its passage.', note].filter(Boolean).join(' ') }))];
 }
 
 function setView(v) {
