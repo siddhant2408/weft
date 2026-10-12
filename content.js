@@ -372,7 +372,8 @@
     const name = ai ? (m.by || replier) : 'You';
     const body = h_('div', 'body');
     if (ai) {
-      body.innerHTML = md(m.content);
+      body.innerHTML = md(MarginNotes.linkRefs(m.content, m.refs));
+      for (const a of body.querySelectorAll('a')) Object.assign(a, { target: '_blank', rel: 'noopener' });  // never navigate the page away
       if (partial) (body.lastElementChild || body).append(h_('span', 'caret'));
     } else body.textContent = m.content;
     return h_('div', 'msg' + (m.role === 'note' ? ' note' : ''), {},

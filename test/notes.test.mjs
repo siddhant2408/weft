@@ -27,4 +27,9 @@ assert.ok(md.startsWith('# [Post](https://a.com/p)'), md);
 assert.ok(md.indexOf('> first\n> line') < md.indexOf('> second'), 'document order, multi-line quote');
 assert.ok(md.includes('**Takeaway:** got it') && md.includes('**Open question:** why?') && md.includes('- Note: n1'));
 assert.ok(md.includes('## Summary'));
+// [Rn] citations become links to the cited passage; unknown ids and markers without refs (mid-stream) vanish.
+const refs = { 1: { urlKey: 'https://a.com/p', exact: 'claim', title: 'A [draft] page' } };
+assert.equal(N.linkRefs('Same idea [R1], see also [R2].', refs), 'Same idea [↗ A draft page](https://a.com/p#:~:text=claim), see also.');
+assert.equal(N.linkRefs('Partial [R1]', undefined), 'Partial');
+assert.equal(N.linkRefs('x [R1]', { 1: { urlKey: 'https://www.b.org/q', exact: 'y', title: '' } }), 'x [↗ b.org](https://www.b.org/q#:~:text=y)');
 console.log('notes: all passed');

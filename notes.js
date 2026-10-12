@@ -8,6 +8,16 @@ var MarginNotes = (() => {
     return `${url}#:~:text=${frag}`;
   }
 
+  // A reply's [R1] citations → Markdown links to the cited thread's passage; unknown ids are dropped.
+  function linkRefs(text, refs) {
+    return text.replace(/\s?\[R(\d+)\]/g, (m, n) => {
+      const r = refs?.[n];
+      if (!r) return '';
+      const label = r.title || r.urlKey.replace(/^[a-z]+:\/\/(www\.)?/i, '').split('/')[0];
+      return ` [↗ ${clip(label, 40).replace(/[[\]]/g, '')}](${fragmentUrl(r.urlKey, r.exact)})`;
+    });
+  }
+
   const tldr = (summary) => (summary.match(/^.*TL;DR:?\**\s*(.+)$/im)?.[1] || '').replace(/\*+/g, '').trim();
   const quote = (s) => s.split('\n').map((l) => '> ' + l).join('\n');
   const clip = (s, n) => (s.length > n ? s.slice(0, n - 1) + '…' : s);
@@ -31,13 +41,13 @@ var MarginNotes = (() => {
     const hs = [...highlights].sort((a, b) => a.start - b.start);
     if (hs.length) parts.push('## Threads\n\n' + hs.map((h) => threadMarkdown(h, url)).join('\n\n'));
     const qa = page.qa?.messages || [];
-    if (qa.length) parts.push('## Questions about the page\n\n' + qa.map((m) => (m.role === 'assistant' ? m.content : `**${m.role === 'note' ? 'Note' : 'Q'}:** ${m.content}`)).join('\n\n'));
+    if (qa.length) parts.push('## Questions about the page\n\n' + qa.map((m) => (m.role === 'assistant' ? linkRefs(m.content, m.refs) : `**${m.role === 'note' ? 'Note' : 'Q'}:** ${m.content}`)).join('\n\n'));
     return parts.join('\n\n') + '\n';
   }
 
   // Notes exports must never include provider credentials or unrelated extension state.
   const pick = (obj, keys) => Object.fromEntries(keys.filter((k) => obj?.[k] !== undefined).map((k) => [k, obj[k]]));
-  const messages = (ms = []) => ms.map((m) => pick(m, ['role', 'content', 'by', 'ts']));
+  const messages = (ms = []) => ms.map((m) => pick(m, ['role', 'content', 'by', 'ts', 'refs']));
   function exportData(storage) {
     const pages = Object.entries(storage).filter(([k, p]) => k.startsWith('page:') && p).map(([, p]) => ({
       ...pick(p, ['urlKey', 'title', 'updatedAt']),
@@ -52,5 +62,5 @@ var MarginNotes = (() => {
     return { version: 1, pages };
   }
 
-  return { fragmentUrl, pageMarkdown, tldr, exportData };
+  return { fragmentUrl, linkRefs, pageMarkdown, tldr, exportData };
 })();
