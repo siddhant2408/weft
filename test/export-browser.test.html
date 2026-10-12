@@ -1,0 +1,42 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Export browser regression</title>
+<pre id="result">RUNNING</pre>
+<script src="../notes.js"></script>
+<script src="../settings.js"></script>
+<script type="module">
+const result = document.getElementById('result');
+window.addEventListener('error', e => { result.textContent = 'FAIL: ' + e.message; });
+window.addEventListener('unhandledrejection', e => { result.textContent = 'FAIL: ' + e.reason; });
+globalThis.chrome ||= {};
+const state = {
+  settings: {provider: 'cli', anthropic: {apiKey: 'FAKE-SECRET'}},
+  'page:https://example.com': {urlKey: 'https://example.com', title: 'Article', highlights: [], qa: {messages: [{role: 'note', content: 'kept'}]}},
+};
+chrome.storage = {local: {
+  get: async k => k == null ? structuredClone(state) : {[k]: structuredClone(state[k])},
+  set: async data => Object.assign(state, data),
+}, onChanged: {addListener() {}}};
+chrome.runtime = {sendMessage: async () => ({}), openOptionsPage() {}};
+let download;
+const create = URL.createObjectURL;
+URL.createObjectURL = blob => { download = blob; return create(blob); };
+HTMLAnchorElement.prototype.click = function() {}; // Capture the real download payload, without downloading.
+try {
+  for (const name of ['options', 'threads']) {
+    const html = await (await fetch('../' + name + '.html')).text();
+    const dom = new DOMParser().parseFromString(html, 'text/html');
+    dom.querySelectorAll('script').forEach(s => s.remove());
+    document.body.replaceChildren(...dom.body.childNodes, result);
+    await import('../' + name + '.js');
+    await new Promise(r => setTimeout(r, 0));
+    download = null;
+    document.getElementById('export').click();
+    await new Promise(r => setTimeout(r, 0));
+    const text = await download.text();
+    const data = JSON.parse(text);
+    if (text.includes('FAKE-SECRET') || data.version !== 1 || data.pages[0].qa.messages[0].content !== 'kept') throw Error(name + ': unsafe or incomplete export');
+  }
+  result.textContent = 'PASS: Settings and All threads export buttons exclude credentials and preserve notes';
+} catch (e) { result.textContent = 'FAIL: ' + e.stack; }
+</script>
