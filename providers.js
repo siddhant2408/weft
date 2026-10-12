@@ -14,14 +14,19 @@ export const PRESETS = {
   openai: { baseUrl: 'https://api.openai.com/v1', label: 'OpenAI' },
 };
 export const DEFAULT_ANTHROPIC_MODEL = 'claude-opus-5-5';
+export const DEFAULT_EFFORT = 'medium';
+// Small jobs (one-line takeaways) never include the article, so a fast cheap model costs no cache reuse.
+const SMALL = { cli: 'haiku', anthropic: 'claude-haiku-5-5' };
+// Effort (output_config.effort) exists on the 5.x families; older models reject it.
+const EFFORT_MODELS = /^claude-(opus|sonnet|haiku|fable|mythos)-5/;
 // Server-side refusal fallback: only these models accept fallbacks: "default".
 const FALLBACK_MODELS = /^claude-(fable-5-1|opus-5-5|opus-5|sonnet-5-5)$/;
 
 const joined = (system, notes) => (notes ? `${system}\n\n${notes}` : system);
 
-function cli({ system, notes, prompt }) {
+function cli({ system, notes, prompt }, cfg) {
   return new Promise((resolve) => {
-    chrome.runtime.sendNativeMessage(HOST, { system: joined(system, notes), prompt }, (res) => {
+    chrome.runtime.sendNativeMessage(HOST, { system: joined(system, notes), prompt, model: cfg.model, effort: cfg.effort }, (res) => {
       const err = chrome.runtime.lastError;
       if (err) resolve({ ok: false, code: /not found|forbidden/i.test(err.message) ? 'HOST_MISSING' : 'HOST_ERROR', detail: err.message });
       else resolve(res);
@@ -99,9 +104,11 @@ function anthropic({ system, notes, prompt }, cfg, onText) {
     model,
     max_tokens: 16000,
     stream: true,
-    system: [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }, ...(notes ? [{ type: 'text', text: notes }] : [])],
+    // 1-hour cache: reading is slow, and the default 5 minutes would re-send the article after every pause.
+    system: [{ type: 'text', text: system, cache_control: { type: 'ephemeral', ttl: '1h' } }, ...(notes ? [{ type: 'text', text: notes }] : [])],
     messages: [{ role: 'user', content: prompt }],
   };
+  if (cfg.effort && EFFORT_MODELS.test(model)) body.output_config = { effort: cfg.effort };
   if (FALLBACK_MODELS.test(model)) {
     headers['anthropic-beta'] = 'server-side-fallback-2026-07-01';
     body.fallbacks = 'default';
@@ -140,7 +147,7 @@ function openai({ system, notes, prompt }, cfg, onText) {
 
 export async function getSettings() {
   const { settings } = await chrome.storage.local.get('settings');
-  return { provider: 'cli', anthropic: {}, openai: {}, ...settings };
+  return { provider: 'cli', cli: {}, anthropic: {}, openai: {}, ...settings };
 }
 
 // What the UI should call the replier.
@@ -150,15 +157,17 @@ export function replierName(s) {
 }
 
 // onText(fullTextSoFar) is called while streaming (API providers only).
+// req.small: a short job (takeaways) that goes to the provider's small model at low effort.
 export async function ask(req, onText) {
   const s = await getSettings();
+  const small = (p) => (req.small ? { model: SMALL[p], effort: 'low' } : {});
   if (s.provider === 'anthropic') {
     if (!s.anthropic.apiKey) return { ok: false, code: 'NO_KEY', detail: 'No Anthropic API key set.' };
-    return anthropic(req, s.anthropic, onText);
+    return anthropic(req, { effort: DEFAULT_EFFORT, ...s.anthropic, ...small('anthropic') }, onText);
   }
   if (s.provider === 'openai') {
     if (!s.openai.model) return { ok: false, code: 'NO_MODEL', detail: 'No model set.' };
     return openai(req, s.openai, onText);
   }
-  return cli(req);
+  return cli(req, { model: 'opus', effort: DEFAULT_EFFORT, ...s.cli, ...small('cli') });
 }

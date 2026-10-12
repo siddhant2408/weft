@@ -1,4 +1,4 @@
-import { getSettings, PRESETS, DEFAULT_ANTHROPIC_MODEL } from './providers.js';
+import { getSettings, PRESETS, DEFAULT_ANTHROPIC_MODEL, DEFAULT_EFFORT } from './providers.js';
 
 const $ = (id) => document.getElementById(id);
 const bg = (msg) => chrome.runtime.sendMessage(msg).catch((e) => ({ error: { code: 'INTERNAL', hint: String(e) } }));
@@ -22,6 +22,9 @@ function presetFor(base) {
 async function loadModel() {
   const s = await getSettings();
   radios().forEach((r) => { r.checked = r.value === s.provider; });
+  $('c-model').value = s.cli.model || 'opus';
+  $('c-effort').value = s.cli.effort || DEFAULT_EFFORT;
+  $('a-effort').value = s.anthropic.effort || DEFAULT_EFFORT;
   $('a-key').value = s.anthropic.apiKey || '';
   $('a-model').value = s.anthropic.model || DEFAULT_ANTHROPIC_MODEL;
   const base = s.openai.baseUrl || PRESETS.openrouter.baseUrl;
@@ -59,7 +62,8 @@ async function saveModel() {
   await chrome.storage.local.set({ settings: {
     ...settings,
     provider: p,
-    anthropic: { apiKey: $('a-key').value.trim(), model: $('a-model').value.trim() || DEFAULT_ANTHROPIC_MODEL },
+    cli: { model: $('c-model').value, effort: $('c-effort').value },
+    anthropic: { apiKey: $('a-key').value.trim(), model: $('a-model').value.trim() || DEFAULT_ANTHROPIC_MODEL, effort: $('a-effort').value },
     openai: { baseUrl: $('o-base').value.trim().replace(/\/+$/, ''), apiKey: $('o-key').value.trim(), model: $('o-model').value.trim() },
   } });
   setStatus('conn', 'Saved', 'ok');

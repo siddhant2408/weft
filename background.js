@@ -257,7 +257,7 @@ const handlers = {
     const h = findThread(await getPage(msg.urlKey), msg.id);
     if (!h) return fail('NOT_FOUND', 'This thread no longer exists.');
     if (!h.messages.length) return { draft: '' };
-    const res = await ask({ system: TAKEAWAY_SYS, prompt: `${passageBlock(h)}\n\nThread:\n\n${transcript(h)}` });
+    const res = await ask({ small: true, system: TAKEAWAY_SYS, prompt: `${passageBlock(h)}\n\nThread:\n\n${transcript(h)}` });
     return res.ok ? { draft: res.text.trim().split('\n')[0] } : fail(res.code, res.detail);
   },
 

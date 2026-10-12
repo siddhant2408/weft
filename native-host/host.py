@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
 """Chrome native messaging host: one request in, `claude -p` once, one reply out.
 
-Request:  {"system": str, "prompt": str, "model"?: str}
+Request:  {"system": str, "prompt": str, "model"?: str, "effort"?: "low"|"medium"|"high"|"xhigh"|"max"}
 Response: {"ok": true, "text", "ms", "usage"} or {"ok": false, "code", "detail"}
 Runs under Chrome's minimal env (/usr/bin/python3 3.9, bare PATH), so keep it stdlib + 3.9.
 """
-import json, os, struct, subprocess, sys, tempfile, time
+import json, os, re, struct, subprocess, sys, tempfile, time
 
 CLAUDE = os.path.expanduser("~/.local/bin/claude")
 LOG = os.path.expanduser("~/Library/Logs/margin-host.log")
 TIMEOUT_S = 120
+EFFORTS = {"low", "medium", "high", "xhigh", "max"}
+MODEL_RE = re.compile(r"^[a-z0-9][a-z0-9.\-]{0,63}$")  # alias (opus, sonnet…) or full model id
 # Verified in M0 (Claude Code 2.1.296): no tools, no MCP, no user/project settings (so no
 # hooks, plugins, CLAUDE.md), system prompt replaced. ~650 tokens overhead, ~3.5 s floor.
 FLAGS = ["--tools", "", "--strict-mcp-config", "--setting-sources", "",
@@ -44,8 +46,15 @@ def ask(req):
         with open(sys_file, "w") as f:
             f.write(req.get("system") or "You are a reading companion.")
         cmd = [CLAUDE, "-p", *FLAGS, "--system-prompt-file", sys_file]
-        if req.get("model"):
-            cmd += ["--model", req["model"]]
+        model, effort = req.get("model"), req.get("effort")
+        if model:
+            if not isinstance(model, str) or not MODEL_RE.match(model):
+                return {"ok": False, "code": "BAD_REQUEST", "detail": "invalid model"}
+            cmd += ["--model", model]
+        if effort:
+            if effort not in EFFORTS:
+                return {"ok": False, "code": "BAD_REQUEST", "detail": "invalid effort"}
+            cmd += ["--effort", effort]
         try:
             p = subprocess.run(cmd, input=req["prompt"], capture_output=True, text=True, cwd=cwd, timeout=TIMEOUT_S)
         except subprocess.TimeoutExpired:

@@ -45,10 +45,35 @@
       <label><input type="radio" name="provider" value="openai"> <span><b>OpenRouter, OpenAI, or another OpenAI-compatible API</b> <span class="muted">Any model. Replies stream in.</span></span></label>
     </fieldset>
 
+    <div class="fields" data-for="cli">
+      <label>Model
+        <select id="c-model">
+          <option value="opus">Claude Opus 5.5 · recommended</option>
+          <option value="sonnet">Claude Sonnet 5.5</option>
+          <option value="haiku">Claude Haiku 5.5 · fastest</option>
+          <option value="fable">Claude Fable 5.1 · most capable, slowest</option>
+        </select>
+      </label>
+      <label>Effort
+        <select id="c-effort">
+          <option value="low">Low · shortest replies</option>
+          <option value="medium">Medium · recommended</option>
+          <option value="high">High · more thorough, a little slower</option>
+        </select>
+      </label>
+    </div>
+
     <div class="fields" data-for="anthropic">
       <label>API key <input type="password" id="a-key" autocomplete="off" placeholder="sk-ant-…"></label>
       <label>Model <span class="with-btn"><input id="a-model" list="a-models" placeholder="claude-opus-5-5"><button type="button" class="btn" id="a-load">Load models</button></span></label>
       <datalist id="a-models"></datalist>
+      <label>Effort
+        <select id="a-effort">
+          <option value="low">Low · shortest replies</option>
+          <option value="medium">Medium · recommended</option>
+          <option value="high">High · more thorough, a little slower</option>
+        </select>
+      </label>
     </div>
 
     <div class="fields" data-for="openai">
@@ -65,6 +90,7 @@
       <datalist id="o-models"></datalist>
     </div>
 
+    <p class="help small">Switching model re-sends the article on your next question; changing effort doesn't. One-line takeaways always use Claude Haiku at low effort. The Anthropic API keeps each article cached for an hour.</p>
     <p class="help small">API keys are stored in this Chrome profile's extension storage and sent only to the provider you choose.</p>
     <div class="row">
       <button class="btn" id="test">Test connection</button>
