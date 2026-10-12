@@ -1,5 +1,5 @@
 import { normaliseUrl } from './url.js';
-import { ask, getSettings, replierName } from './providers.js';
+import { HOST, ask, getSettings, replierName } from './providers.js';
 
 const THREAD_MAX_CHARS = 120000;   // ≈30k tokens: above this, threads get the summary instead (spec D10)
 const SNAPSHOT_MAX_CHARS = 400000; // ≈100k tokens: what the summary call itself may read
@@ -37,12 +37,28 @@ function updatePage(urlKey, fn, request) {
     const page = (await chrome.storage.local.get(k))[k] || null;
     if (request?.cancelled) return;
     const { save, remove, result } = fn(page) || {};
-    if (remove) await chrome.storage.local.remove(k);
-    if (save) await chrome.storage.local.set({ [k]: { ...save, updatedAt: new Date().toISOString() } });
+    if (remove) { await chrome.storage.local.remove(k); mirror(k, null); }
+    if (save) {
+      const next = { ...save, updatedAt: new Date().toISOString() };
+      await chrome.storage.local.set({ [k]: next });
+      mirror(k, next);
+    }
     return result;
   });
   chains.set(urlKey, run.catch(() => {}));
   return run;
+}
+
+// Best-effort copy of every page write into ~/Library/Application Support/Margin/notes.db via the native host,
+// so notes outlive an uninstall. Queued per page so a delete never lands before the save it follows.
+// ponytail: one host process per write; fine at human edit rates, batch if writes ever get chatty.
+const mirrors = new Map();
+function mirror(k, page) {
+  const run = (mirrors.get(k) || Promise.resolve()).then(() => new Promise((resolve) => {
+    chrome.runtime.sendNativeMessage(HOST, { mirror: { key: k, page } }, () => { void chrome.runtime.lastError; resolve(); });
+  }));
+  mirrors.set(k, run);
+  run.then(() => { if (mirrors.get(k) === run) mirrors.delete(k); });
 }
 
 async function getPage(urlKey) {
