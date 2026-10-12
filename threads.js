@@ -50,6 +50,12 @@ function item(h, page) {
     el('div', { className: 'meta-line', textContent: `${n ? `${n} comment${n === 1 ? '' : 's'}` : 'No comments yet'} · ${day(last)}` }));
 }
 
+const miniBar = (hs) => {
+  const d = hs.filter((h) => h.status === 'resolved').length, o = hs.length - d;
+  return el('span', { className: 'mini', role: 'img', ariaLabel: `${d} of ${hs.length} resolved` },
+    d > 0 && el('span', { className: 'd', style: `flex-grow:${d}` }), o > 0 && el('span', { className: 'o', style: `flex-grow:${o}` }));
+};
+
 const COPY = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 5.5V4A1.5 1.5 0 0 0 9 2.5H4A1.5 1.5 0 0 0 2.5 4v5A1.5 1.5 0 0 0 4 10.5h1.5"/></svg>';
 
 // Concepts are labelled hubs; threads are dots (yellow open, green resolved) joined to the concepts they share.
@@ -156,7 +162,7 @@ function render() {
       el('div', { className: 'page-head' },
         el('div', { className: 'page-title' },
           el('h2', {}, el('a', { href: page.urlKey, target: '_blank', rel: 'noopener', textContent: page.title || page.urlKey })),
-          el('span', { className: 'host', textContent: `${host} · ${hs.length} thread${hs.length === 1 ? '' : 's'}` })),
+          el('span', { className: 'host' }, `${host} · ${hs.length} thread${hs.length === 1 ? '' : 's'}`, miniBar(hs))),
         copyBtn),
       el('div', { className: 'cards' }, ...hs.map((h) => item(h, page)))));
   }
