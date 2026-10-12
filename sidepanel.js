@@ -11,6 +11,7 @@ const live = (startedAt) => Date.now() - startedAt < 150000;
 const errors = {};                  // 'summary' | 'page' → {code, hint}
 const changed = {};                 // urlKey → page text differs from when the summary was made
 let showFull = false;               // full summary bullets expanded
+const expanded = new Set();        // thread ids whose long passage is shown in full
 let openOrphan = null;              // orphaned thread shown inline (it has no passage to jump to)
 let confirmOrphanDelete = false, confirmPageDelete = false;
 let noteMode = false;               // page composer saves a note instead of asking
@@ -33,10 +34,9 @@ const ICON = {
   spark: '<path d="M8 2.5c.4 2.6 1.4 3.6 4 4-2.6.4-3.6 1.4-4 4-.4-2.6-1.4-3.6-4-4 2.6-.4 3.6-1.4 4-4ZM12.5 10.5c.2 1 .6 1.4 1.5 1.5-1 .2-1.3.6-1.5 1.5-.2-1-.6-1.3-1.5-1.5 1-.1 1.3-.5 1.5-1.5Z"/>',
   copy: '<rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 5.5V4A1.5 1.5 0 0 0 9 2.5H4A1.5 1.5 0 0 0 2.5 4v5A1.5 1.5 0 0 0 4 10.5h1.5"/>',
   list: '<path d="M5.5 4h8M5.5 8h8M5.5 12h8M2.5 4h.01M2.5 8h.01M2.5 12h.01" stroke-width="1.6"/>',
-  gear: '<circle cx="8" cy="8" r="2"/><path d="M8 1.8v1.6M8 12.6v1.6M3.6 3.6l1.1 1.1M11.3 11.3l1.1 1.1M1.8 8h1.6M12.6 8h1.6M3.6 12.4l1.1-1.1M11.3 4.7l1.1-1.1"/>',
+  gear: '<g transform="scale(.6667)" stroke-width="2"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></g>',
   done: '<path d="m3.5 8.5 3 3 6-7" stroke-width="1.6"/>',
   refresh: '<path d="M13 8a5 5 0 1 1-1.5-3.6M13 2.5v3h-3"/>',
-  eye: '<path d="M1.5 8S4 3.5 8 3.5 14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8Z"/><circle cx="8" cy="8" r="2"/>',
 };
 const svg = (name) => `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON[name]}</svg>`;
 const iconBtn = (name, label, onclick, extra = {}) => {
@@ -141,18 +141,19 @@ function thinking(key, label) {
 }
 
 const label = (text, n, ...extra) => el('h2', { className: 'label' }, text, n != null && el('span', { className: 'n', textContent: n }), el('span', { className: 'spacer' }), ...extra);
-const quote = (h, n = 110) => el('span', { className: 'hl', textContent: h.exact.length > n ? h.exact.slice(0, n - 1) + '…' : h.exact });
 
 function gistView() {
   const s = page?.summary;
   const busy = pending.has(pk('summary'));
-  const sec = el('section', { className: 'block gist', ariaLabel: 'Gist' });
-  sec.append(label('✦ Gist', null, s && iconBtn('refresh', 'Summarise again', summarise, { disabled: busy })));
+  const outer = el('section', { className: 'block gist', ariaLabel: 'Gist' },
+    label('✦ Gist', null, s && iconBtn('refresh', 'Summarise again', summarise, { disabled: busy })));
+  const sec = el('div', { className: 'gist-card' });
+  outer.append(sec);
   if (busy) {
     const partial = streams[pk('summary')];
     if (partial) { const d = el('div', { className: 'full' }); d.innerHTML = md(partial); d.append(el('span', { className: 'caret' })); sec.append(d); }
     else sec.append(el('p', { className: 'thinking', textContent: 'Summarising the page…' }));
-    return sec;
+    return outer;
   }
   if (errors.summary) {
     sec.append(el('div', { className: 'error', role: 'alert' }, errors.summary.hint, ' ',
@@ -162,7 +163,7 @@ function gistView() {
     sec.append(el('div', { className: 'empty-gist' },
       el('p', { textContent: `A one-line gist and the key points. ${replier} also gets the gist with every question you ask here.` }),
       Object.assign(el('button', { type: 'button', className: 'btn', onclick: summarise }), { innerHTML: `${svg('spark')} Summarise page` })));
-    return sec;
+    return outer;
   }
   const tldr = MarginNotes.tldr(s.text);
   const p = el('p', { className: 'tldr' });
@@ -172,43 +173,53 @@ function gistView() {
   sec.append(el('button', { type: 'button', className: 'btn plain more', textContent: showFull ? 'Hide key points' : 'Show key points',
     ariaExpanded: String(showFull), onclick: () => { showFull = !showFull; render(); } }));
   if (changed[urlKey]) sec.append(el('div', { className: 'warn', textContent: 'The page has changed since this was made. Summarise again to update it.' }));
-  return sec;
+  return outer;
+}
+
+// One thread as a card showing its passage: yellow while open, green once resolved.
+const LONG = 180;  // passages past this many characters start clamped, with Show more
+function card(h, ...extra) {
+  const done = h.status === 'resolved';
+  const n = h.messages.length, last = h.messages.at(-1)?.ts;
+  const long = h.exact.length > LONG, full = expanded.has(h.id);
+  return el('div', { className: 'card' + (done ? ' done' : '') },
+    el('button', { type: 'button', title: 'Jump to this passage', onclick: () => jump(h.id) },
+      el('div', { className: 'passage' + (long && !full ? ' clamp' : ''), textContent: h.exact }),
+      ...extra),
+    long && el('button', { type: 'button', className: 'btn plain more', textContent: full ? 'Show less' : 'Show more', ariaExpanded: String(full),
+      onclick: () => { full ? expanded.delete(h.id) : expanded.add(h.id); render(); } }),
+    n > 0 && el('div', { className: 'meta-line', textContent: plural(n, 'comment') + (last ? ` · ${ago(last)}` : '') }));
 }
 
 function learnedView(hs) {
   const done = hs.filter((h) => h.status === 'resolved');
   if (!done.length) return null;
-  return el('section', { className: 'block', ariaLabel: 'What you learned' },
-    label('What you learned', done.length),
-    ...done.map((h) => el('button', { type: 'button', className: 'item', title: 'Jump to this passage', onclick: () => jump(h.id) },
-      el('div', { className: 'line' },
-        el('span', { className: 'mark', textContent: '✓', ariaHidden: 'true' }),
-        el('div', { className: 'main', textContent: h.takeaway || 'Resolved without a takeaway' }),
-        el('div', { className: 'src' }, quote(h))))));
+  return el('section', { className: 'block', ariaLabel: 'Resolved' },
+    label('Resolved', done.length),
+    el('div', { className: 'cards' }, ...done.map((h) => card(h))));
 }
 
 function openView(hs) {
   const open = hs.filter((h) => h.status !== 'resolved');
-  const sec = el('section', { className: 'block', ariaLabel: 'Still open' }, label('Still open', open.length));
+  const sec = el('section', { className: 'block', ariaLabel: 'Open' }, label('Open', open.length));
   if (!open.length) {
     sec.append(el('p', { className: 'hint', textContent: hs.length ? 'Nothing open. Every thread has a takeaway.' : 'Select text on the page to comment on a passage.' }));
     return sec;
   }
-  for (const h of open) {
-    const q = h.messages.filter((m) => m.role === 'user').at(-1);
+  sec.append(el('div', { className: 'cards' }, ...open.map((h) => {
     const orphan = orphans.includes(h.id);
-    const busy = pending.has(h.id);
-    sec.append(el('button', { type: 'button', className: 'item', title: orphan ? 'Show this thread' : 'Jump to this passage',
-      ariaExpanded: orphan ? String(openOrphan === h.id) : null,
-      onclick: () => (orphan ? (openOrphan = openOrphan === h.id ? null : h.id, confirmOrphanDelete = false, render()) : jump(h.id)) },
-    el('div', { className: 'line' },
-      el('span', { className: 'mark q', textContent: '?', ariaHidden: 'true' }),
-      el('div', { className: 'main' }, q ? el('span', { className: 'q-text', textContent: q.content }) : el('span', { className: 'faint', textContent: h.messages.length ? 'Notes only' : 'No comments yet' })),
-      el('div', { className: 'src' }, quote(h)),
-      busy && el('div', { className: 'status', textContent: `${replier} is replying…` }),
-      orphan && el('div', { className: 'status warn', textContent: 'Text not found on the page. Click to see the thread.' }))));
-    if (orphan && openOrphan === h.id) sec.append(orphanView(h));
-  }
+    const c = card(h,
+      pending.has(h.id) && el('div', { className: 'status', textContent: `${replier} is replying…` }),
+      orphan && el('div', { className: 'status warn', textContent: 'Text not found on the page. Click to see the thread.' }));
+    if (orphan) {
+      const b = c.firstChild;
+      b.title = 'Show this thread';
+      b.ariaExpanded = String(openOrphan === h.id);
+      b.onclick = () => { openOrphan = openOrphan === h.id ? null : h.id; confirmOrphanDelete = false; render(); };
+      if (openOrphan === h.id) c.append(orphanView(h));
+    }
+    return c;
+  })));
   return sec;
 }
 
@@ -219,18 +230,6 @@ function orphanView(h) {
       ? el('span', {}, el('button', { type: 'button', className: 'btn', textContent: 'Cancel', onclick: () => { confirmOrphanDelete = false; render(); } }), ' ',
         el('button', { type: 'button', className: 'btn danger', textContent: 'Delete thread', onclick: () => bg({ type: 'highlight.delete', urlKey, id: h.id }) }))
       : el('button', { type: 'button', className: 'btn plain', textContent: 'Delete thread…', onclick: () => { confirmOrphanDelete = true; render(); } })));
-}
-
-// What the model is told on every question here and in the margin: made visible so it's never a mystery.
-function contextLine(hs) {
-  const parts = ['the article'];
-  if (page?.summary) parts.push('the gist');
-  const t = hs.filter((h) => h.takeaway).length;
-  const o = hs.filter((h) => h.status !== 'resolved' && h.messages.some((m) => m.role === 'user')).length;
-  if (t) parts.push(plural(t, 'takeaway'));
-  if (o) parts.push(plural(o, 'open question'));
-  const list = parts.length > 1 ? `${parts.slice(0, -1).join(', ')} and ${parts.at(-1)}` : parts[0];
-  return el('p', { className: 'context' }, Object.assign(el('span'), { innerHTML: svg('eye') }), `Every question includes ${list}.`);
 }
 
 function qaView() {
@@ -257,7 +256,10 @@ const composer = (() => {
   ta.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); sendPage(); }
   });
-  return { box: el('div', { className: 'composer' }, ta, noteBtn, sendBtn), ta, noteBtn, sendBtn, autosize };
+  const box = el('div', { className: 'composer' }, ta, noteBtn, sendBtn);
+  const err = el('div'), del = el('div');
+  $('foot').append(err, box, del);  // mounted once: re-attaching the textarea on every render would steal focus
+  return { box, err, del, ta, noteBtn, sendBtn, autosize };
 })();
 
 function footer() {
@@ -267,32 +269,41 @@ function footer() {
   composer.noteBtn.ariaPressed = String(noteMode);
   composer.sendBtn.title = composer.sendBtn.ariaLabel = noteMode ? 'Save note' : `Ask ${replier}`;
   composer.autosize();
-  const del = !page ? null : confirmPageDelete
+  const del = !page ? '' : confirmPageDelete
     ? el('div', { className: 'confirm' }, 'Delete every comment and the gist for this page?',
       el('button', { type: 'button', className: 'btn', textContent: 'Cancel', onclick: () => { confirmPageDelete = false; render(); } }),
       el('button', { type: 'button', className: 'btn danger', textContent: 'Delete', onclick: () => { confirmPageDelete = false; bg({ type: 'page.delete', urlKey }); } }))
     : el('div', { className: 'page-del' }, el('button', { type: 'button', className: 'btn plain', textContent: 'Delete this page\'s comments',
       onclick: () => { confirmPageDelete = true; render(); } }));
-  $('foot').replaceChildren(...kids([
-    errors.page && el('div', { className: 'error', role: 'alert' }, errors.page.hint, ' ',
-      el('button', { type: 'button', className: 'btn plain', textContent: 'Retry', onclick: () => sendPage(true) })),
-    composer.box,
-    del,
-  ]));
+  composer.err.replaceChildren(...kids([errors.page && el('div', { className: 'error', role: 'alert' }, errors.page.hint, ' ',
+    el('button', { type: 'button', className: 'btn plain', textContent: 'Retry', onclick: () => sendPage(true) }))]));
+  composer.del.replaceChildren(...kids([del]));
 }
 
 function header() {
   const hs = page?.highlights || [];
-  $('title').textContent = page?.title || (urlKey ? 'This page' : 'Margin');
+  $('title').textContent = page?.title || (urlKey ? 'This page' : '');
   let host = '';
   try { host = urlKey ? new URL(urlKey).hostname.replace(/^www\./, '') : ''; } catch {}
-  $('host').textContent = [host, hs.length && plural(hs.length, 'comment thread')].filter(Boolean).join(' · ');
+  $('host').textContent = host;
+  const d = hs.filter((h) => h.status === 'resolved').length, o = hs.length - d;
+  $('progress').hidden = !hs.length;
+  $('progress').replaceChildren(...(hs.length ? [
+    el('div', { className: 'bar', role: 'img', ariaLabel: `${d} of ${hs.length} threads resolved` },
+      d > 0 && el('span', { className: 'd', style: `flex-grow:${d}` }), o > 0 && el('span', { className: 'o', style: `flex-grow:${o}` })),
+    el('div', { className: 'legend' },
+      el('span', {}, el('span', { className: 'dot d' }), `${d} resolved`),
+      el('span', {}, el('span', { className: 'dot o' }), `${o} open`)),
+  ] : []));
   $('tools').replaceChildren(...kids([
     page && (hs.length || page.summary || page.qa) && iconBtn('copy', 'Copy as notes', (e) => copyNotes(e.currentTarget)),
-    iconBtn('list', 'All threads', () => chrome.tabs.create({ url: chrome.runtime.getURL('threads.html') })),
-    iconBtn('gear', 'Settings', () => chrome.runtime.openOptionsPage()),
   ]));
 }
+
+// Global: not about this page, so they sit in the top bar above it.
+$('global').append(
+  iconBtn('list', 'All threads', () => chrome.tabs.create({ url: chrome.runtime.getURL('threads.html') })),
+  iconBtn('gear', 'Settings', () => chrome.runtime.openOptionsPage()));
 
 function render() {
   header();
@@ -304,7 +315,7 @@ function render() {
   }
   $('foot').hidden = false;
   const hs = [...(page?.highlights || [])].sort((a, b) => a.start - b.start);
-  $('list').replaceChildren(...kids([gistView(), learnedView(hs), openView(hs), contextLine(hs), qaView()]));
+  $('list').replaceChildren(...kids([gistView(), learnedView(hs), openView(hs), qaView()]));
   footer();
 }
 
