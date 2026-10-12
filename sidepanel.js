@@ -304,7 +304,7 @@ function render() {
   list.replaceChildren(...[
     summaryCard(),
     ...hs.map(card),
-    !hs.length && el('p', { className: 'empty' }, 'Select text on the page and click Ask to start a thread.'),
+    !hs.length && el('p', { className: 'empty' }, 'Select text on the page to start a comment thread.'),
     pageDelete(),
   ].filter(Boolean));
 

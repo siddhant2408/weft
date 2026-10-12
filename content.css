@@ -1,6 +1,9 @@
-::highlight(margin) {
-  background-color: rgb(255 236 120 / 0.45);
+/* Notion-style: a light yellow wash with a yellow underline. Translucent, so it reads on light and dark pages. */
+::highlight(margin), ::highlight(margin-draft) {
+  background-color: rgb(255 212 0 / 0.16);
+  text-decoration: underline 2px rgb(245 196 0);
 }
 ::highlight(margin-active) {
-  background-color: rgb(255 236 120 / 0.75);
+  background-color: rgb(255 212 0 / 0.32);
+  text-decoration: underline 2px rgb(245 196 0);
 }

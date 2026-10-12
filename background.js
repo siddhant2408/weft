@@ -22,6 +22,8 @@ const HINTS = {
 const fail = (code, detail) => ({ error: { code, hint: (HINTS[code] && detail && /^API_|REFUSED/.test(code) ? `${HINTS[code]} (${detail})` : HINTS[code]) || detail || code } });
 
 chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => {});
+// Content scripts render comment cards, so they need the in-flight/streaming flags. No secrets live here.
+chrome.storage.session.setAccessLevel({ accessLevel: 'TRUSTED_AND_UNTRUSTED_CONTEXTS' }).catch(() => {});
 
 
 // --- Storage: this worker is the only writer; read-modify-write is serialised per page (spec §4) ---
@@ -190,7 +192,7 @@ const handlers = {
       page ||= { urlKey, title: '', summary: null, highlights: [] };
       return {
         save: { ...page, title: String(msg.title || page.title).slice(0, 500), highlights: [...page.highlights, highlight] },
-        result: { highlight },
+        result: { highlight, urlKey },
       };
     });
     if (sender.tab) await chrome.storage.session.set({ ['active:' + sender.tab.id]: highlight.id });
@@ -206,7 +208,7 @@ const handlers = {
   }),
 
   // text + ask:false → note; text + ask:true → question; no text + ask:true → retry the last question.
-  'thread.send': async (msg) => {
+  'thread.send': async (msg, sender) => {
     const text = String(msg.text || '').trim().slice(0, 20000);
     if (text) {
       const ok = await updateThread(msg.urlKey, msg.id, (t) => {
@@ -215,7 +217,7 @@ const handlers = {
       });
       if (!ok) return fail('NOT_FOUND', 'This thread no longer exists.');
     }
-    return msg.ask ? runThread(msg.urlKey, msg.id, msg.tabId) : { ok: true };
+    return msg.ask ? runThread(msg.urlKey, msg.id, msg.tabId ?? sender.tab?.id) : { ok: true };
   },
 
   'thread.resolve': async (msg) => {
@@ -252,14 +254,10 @@ const handlers = {
   'thread.reopen': (msg) => updateThread(msg.urlKey, msg.id, (h) => { h.status = 'open'; }),
 };
 
-// Panel opening needs the user gesture, which only survives in the synchronous part of the listener.
-const OPENS_PANEL = new Set(['highlight.create', 'highlight.open']);
-
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (sender.id !== chrome.runtime.id) return;
   const h = handlers[msg?.type];
   if (!h) return;
-  if (OPENS_PANEL.has(msg.type) && sender.tab) chrome.sidePanel.open({ tabId: sender.tab.id }).catch(() => {});
   Promise.resolve()
     .then(() => h(msg, sender))
     .catch((e) => ({ error: { code: 'INTERNAL', hint: String(e) } }))
