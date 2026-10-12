@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-let state = {}, session = {}, listener, calls = [];
+let state = {}, session = {}, listener, calls = [], mirrored = [];
 const clone = x => structuredClone(x);
 const storage = obj => ({
   get: async k => k == null ? clone(obj) : Object.fromEntries((Array.isArray(k) ? k : [k]).filter(x => x in obj).map(x => [x, clone(obj[x])])),
@@ -10,7 +10,8 @@ const storage = obj => ({
 globalThis.chrome = {
   storage: { local: storage(state), session: storage(session) },
   sidePanel: { setPanelBehavior: async () => {} },
-  runtime: { id: 'test', onMessage: { addListener: f => listener = f } },
+  runtime: { id: 'test', onMessage: { addListener: f => listener = f },
+    sendNativeMessage: (host, m, cb) => { mirrored.push(m.mirror); setTimeout(() => cb({ok: true})); } },
   tabs: { sendMessage: async () => ({title: 'Article', text: 'LIVE ARTICLE'}) },
 };
 globalThis.fetch = (url, init) => new Promise(resolve => calls.push({
@@ -26,7 +27,7 @@ const seed = () => {
   state.settings = {provider: 'openai', openai: {model: 'test', baseUrl: 'https://example.com/v1'}};
   state['page:' + key] = {urlKey: key, title: 'Article', article: {text: 'OLD ARTICLE'}, summary: null,
     highlights: [{id: 'h', exact: 'passage', context: 'context', start: 0, messages: [], status: 'open'}]};
-  calls.length = 0;
+  calls.length = 0; mirrored.length = 0;
 };
 const send = (id = 'page', text = 'question') => msg({type: 'thread.send', urlKey: key, id, text, ask: true, tabId: 1});
 const run = async (name, fn) => { seed(); await fn(); console.log('PASS', name); };
@@ -125,5 +126,15 @@ await run('thread on a long article waits for an in-flight summary', async () =>
   assert.match(calls[1].body.messages[0].content, /<summary title=/);
   calls[1].finish(); await question;
   assert.equal(state['page:' + key].qa.messages.at(-1).role, 'assistant');
+});
+await run('every page write is mirrored to the native host, in order', async () => {
+  await msg({type: 'thread.reopen', urlKey: key, id: 'h'});
+  await msg({type: 'page.delete', urlKey: key});
+  await wait(() => mirrored.at(-1)?.page === null);  // earlier tests' mirrors may still be draining
+  const [save, del] = mirrored.slice(-2);
+  assert.equal(save.key, 'page:' + key);
+  assert.equal(save.page.highlights[0].status, 'open');
+  assert.ok(save.page.updatedAt);
+  assert.deepEqual(del, {key: 'page:' + key, page: null});
 });
 console.log('background lifecycle: all passed');

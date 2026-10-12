@@ -1,14 +1,17 @@
 #!/usr/bin/env python3
-"""Chrome native messaging host: one request in, `claude -p` once, one reply out.
+"""Chrome native messaging host: one request in, one reply out. Two kinds of request:
 
-Request:  {"system": str, "prompt": str, "model"?: str, "effort"?: "low"|"medium"|"high"|"xhigh"|"max"}
-Response: {"ok": true, "text", "ms", "usage"} or {"ok": false, "code", "detail"}
+Ask:      {"system": str, "prompt": str, "model"?: str, "effort"?: "low"|"medium"|"high"|"xhigh"|"max"}
+          runs `claude -p` once → {"ok": true, "text", "ms", "usage"} or {"ok": false, "code", "detail"}
+Mirror:   {"mirror": {"key": "page:…", "page": {...} | null}}
+          copies one page record into a SQLite file that outlives the extension; null deletes it.
 Runs under Chrome's minimal env (/usr/bin/python3 3.9, bare PATH), so keep it stdlib + 3.9.
 """
-import json, os, re, struct, subprocess, sys, tempfile, time
+import json, os, re, sqlite3, struct, subprocess, sys, tempfile, time
 
 CLAUDE = os.path.expanduser("~/.local/bin/claude")
 LOG = os.path.expanduser("~/Library/Logs/margin-host.log")
+DB = os.environ.get("MARGIN_DB") or os.path.expanduser("~/Library/Application Support/Margin/notes.db")
 TIMEOUT_S = 120
 EFFORTS = {"low", "medium", "high", "xhigh", "max"}
 MODEL_RE = re.compile(r"^[a-z0-9][a-z0-9.\-]{0,63}$")  # alias (opus, sonnet…) or full model id
@@ -72,11 +75,29 @@ def ask(req):
     return {"ok": True, "text": out.get("result", ""), "usage": out.get("usage", {})}
 
 
+def mirror(m):
+    key, page = m.get("key") if isinstance(m, dict) else None, m.get("page") if isinstance(m, dict) else None
+    if not isinstance(key, str) or not key.startswith("page:") or not (page is None or isinstance(page, dict)):
+        return {"ok": False, "code": "BAD_REQUEST", "detail": "expected {key, page}"}
+    os.makedirs(os.path.dirname(DB), exist_ok=True)
+    db = sqlite3.connect(DB, timeout=10)
+    try:
+        with db:
+            db.execute("CREATE TABLE IF NOT EXISTS pages (key TEXT PRIMARY KEY, json TEXT NOT NULL, updated_at TEXT)")
+            if page is None:
+                db.execute("DELETE FROM pages WHERE key = ?", (key,))
+            else:
+                db.execute("INSERT OR REPLACE INTO pages VALUES (?, ?, ?)", (key, json.dumps(page), page.get("updatedAt")))
+    finally:
+        db.close()
+    return {"ok": True}
+
+
 def main():
     req = read_msg()
     t0 = time.time()
     try:
-        res = ask(req)
+        res = mirror(req["mirror"]) if isinstance(req, dict) and "mirror" in req else ask(req)
     except Exception as e:  # never leave Chrome without a reply
         res = {"ok": False, "code": "CLI_ERROR", "detail": repr(e)[:500]}
     res["ms"] = int((time.time() - t0) * 1000)

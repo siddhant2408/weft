@@ -6,7 +6,7 @@
 //   anthropic → Anthropic Messages API with the user's key (streaming, cache_control on the system prompt)
 //   openai    → any OpenAI-compatible Chat Completions API: OpenRouter, OpenAI, Ollama, LM Studio… (streaming)
 
-const HOST = 'com.margin.host';
+export const HOST = 'com.margin.host';
 const TIMEOUT_MS = 120000;
 
 export const PRESETS = {
