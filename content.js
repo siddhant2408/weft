@@ -23,7 +23,9 @@
   };
   let replier = replierOf(s0);
 
-  const send = (msg) => chrome.runtime.sendMessage(msg).catch(() => null);  // null if the extension was reloaded
+  // After an extension reload this script is orphaned: chrome.* throws synchronously, so wrap in a promise.
+  const chromeCall = (fn) => Promise.resolve().then(fn).catch(() => null);
+  const send = (msg) => chromeCall(() => chrome.runtime.sendMessage(msg));  // null if the extension was reloaded
   const pageInfo = () => ({
     url: location.href,
     canonical: document.querySelector('link[rel="canonical"]')?.href || null,
@@ -70,6 +72,7 @@
     trash: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.6 8.5h5.8l.6-8.5" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>',
     close: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4.5 4.5 7 7m0-7-7 7" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>',
     note: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M10.8 2.7a1.4 1.4 0 0 1 2 2L6 11.5l-2.7.7.7-2.7Z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg>',
+    keep: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4.5 2.5h7v11L8 10.8 4.5 13.5Z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg>',
     up: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 12.5v-9m-4 4 4-4 4 4" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>',
   };
 
@@ -148,6 +151,7 @@
     .composer .tool { width: 28px; height: 28px; display: grid; place-items: center; border-radius: 6px; color: var(--faint); flex: none; }
     .composer .tool:hover { background: var(--hover); color: var(--soft); }
     .composer .tool[aria-pressed="true"] { color: var(--ink); background: var(--hover); }
+    .composer .tool[hidden] { display: none; }
     .composer .send { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; flex: none;
       background: var(--faint); color: var(--bg); }
     .composer .send.ready { background: var(--send); color: #fff; }
@@ -273,6 +277,7 @@
       ta.focus();
     }, 'tool');
     noteBtn.setAttribute('aria-pressed', 'false');
+    const keepBtn = iconBtn('keep', 'Keep highlight without commenting', () => keep(), 'tool');
     const sendBtn = iconBtn('up', 'Send', () => submit(), 'send');
     const autosize = () => {
       ta.style.height = 'auto';
@@ -290,11 +295,11 @@
     const scroll = h_('div', 'scroll');
     const msgs = h_('div', 'msgs');
     const state = h_('div', 'state');
-    const composer = h_('div', 'composer', {}, ta, noteBtn, sendBtn);
+    const composer = h_('div', 'composer', {}, ta, keepBtn, noteBtn, sendBtn);
     scroll.append(msgs);
     el.append(head, scroll, state, composer);
     cardHost.replaceChildren(el);
-    card = { el, head, scroll, msgs, state, composer, ta, sendBtn, autosize };
+    card = { el, head, scroll, msgs, state, composer, ta, keepBtn, sendBtn, autosize };
 
     syncActive();
     layout();
@@ -302,7 +307,8 @@
     card.scroll.scrollTop = card.scroll.scrollHeight;  // open at the latest comment; scroll up for history
     requestAnimationFrame(revealCard);
     if (target.id) {
-      chrome.storage.session.get([`pending:${target.id}`, `stream:${target.id}`, `phase:${target.id}`]).then((s) => {
+      chromeCall(() => chrome.storage.session.get([`pending:${target.id}`, `stream:${target.id}`, `phase:${target.id}`])).then((s) => {
+        if (!s) return;
         if (s[`pending:${target.id}`]) pending.add(target.id);
         if (s[`stream:${target.id}`]) streams[target.id] = s[`stream:${target.id}`];
         if (s[`phase:${target.id}`]) phases[target.id] = s[`phase:${target.id}`];
@@ -396,11 +402,12 @@
     if (open.id && !h) return closeCard();  // deleted elsewhere
     const busy = !!open.id && pending.has(open.id);
     card.el.classList.toggle('draft', !h && !ui.error);
+    card.keepBtn.hidden = !!h;  // only a new selection can be kept
     const resolved = h?.status === 'resolved';
     const atBottom = card.scroll.scrollHeight - card.scroll.scrollTop - card.scroll.clientHeight < 40;
 
     card.head.replaceChildren(...kids([
-      h_('span', 'title', { textContent: resolved ? 'Resolved' : h ? `${h.messages.length} comment${h.messages.length === 1 ? '' : 's'}` : 'New comment' }),
+      h_('span', 'title', { textContent: resolved ? 'Resolved' : !h ? 'New comment' : h.messages.length ? `${h.messages.length} comment${h.messages.length === 1 ? '' : 's'}` : 'Kept highlight' }),
       h && !resolved && iconBtn('check', 'Resolve with a takeaway', startResolve),
       h && iconBtn('trash', 'Delete this thread', () => { ui.confirmDelete = true; renderCard(); }),
       iconBtn('close', 'Close (Esc)', closeCard)]));
@@ -497,23 +504,32 @@
     await send({ type: 'thread.resolve', urlKey, id: h.id, takeaway: text });
   }
 
+  // The draft selection becomes a saved highlight: on its first message, or when kept without one.
+  async function saveDraft(keep = false) {
+    const { selector, context, range } = open.draft;
+    const res = await send({ type: 'highlight.create', ...pageInfo(), selector, context, keep });
+    if (!res?.highlight) { ui.error = res?.error || { hint: 'Couldn\'t save. Reload the page and try again.' }; renderCard(); return false; }
+    urlKey ||= res.urlKey;
+    highlights.push(res.highlight);
+    ranges.set(res.highlight.id, range);
+    open = { id: res.highlight.id };
+    regDraft.clear();
+    syncActive();
+    return true;
+  }
+
+  // Kept highlights are tagged from their passage, so later questions on other pages can find them.
+  async function keep() {
+    ui.error = null;
+    if (await saveDraft(true)) { getSelection().removeAllRanges(); closeCard(); }
+  }
+
   async function submit() {
     const text = card.ta.value.trim();
     if (!text || !open) return;
     const ask = !ui.noteMode;
     ui.error = null;
-    if (open.draft) {
-      // First message: only now does the selection become a saved highlight.
-      const { selector, context, range } = open.draft;
-      const res = await send({ type: 'highlight.create', ...pageInfo(), selector, context });
-      if (!res?.highlight) { ui.error = res?.error || { hint: 'Couldn\'t save. Reload the page and try again.' }; renderCard(); return; }
-      urlKey ||= res.urlKey;
-      highlights.push(res.highlight);
-      ranges.set(res.highlight.id, range);
-      open = { id: res.highlight.id };
-      regDraft.clear();
-      syncActive();
-    }
+    if (open.draft && !(await saveDraft())) return;
     const id = open.id;
     card.ta.value = '';
     if (ask) pending.add(id);

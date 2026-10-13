@@ -12,6 +12,8 @@ tag the thread ─▶ shortlist (≤10, shared tag) ─▶ Jev scores each ─�
 
 A thread is tagged from its first question, before its first reply (`tagThread` in `background.js`). The small model names 2–4 concepts the question is about, reusing existing tags where it can (`CONCEPTS_SYS`). Tags are what connect threads. Without them a thread has no related threads. Page Q&A threads are never tagged, so they get none.
 
+A highlight doesn't need a conversation. **Keep** (the bookmark on a new comment card) saves the highlight with no messages and tags it from the passage itself. A note on an untagged thread tags it from the passage and the note. Either way, the highlight can later be found and sent with replies on other pages, like any thread.
+
 ### 1. Shortlist (code, no model)
 
 `findCandidates` in `thread-index.js`:
@@ -36,6 +38,8 @@ Each request holds a short summary of both sides (`judgeState`):
 | last 3 messages (500 each) | its latest question (400) |
 | | its latest AI answer (600) |
 
+It also gets the candidate's notes (400) and, for a highlight kept without comment, a line saying so.
+
 Jev never sees a candidate's surrounding context, earlier messages or tags. It judges from what was highlighted, what was last asked and what the AI last answered. As a result, a thread whose useful conclusion sits in an earlier message, and that has no takeaway, can score lower than it should.
 
 ### 3. Pick
@@ -57,6 +61,7 @@ The picked threads are re-read from storage, so they are current, and formatted 
 | `Reader-approved takeaway` | only if that thread is resolved | 500 chars |
 | `Open question` | only if open: its last question | 500 chars |
 | `Recent conversation excerpts` | the last 4 messages, labelled "Reader question", "Reader note" or "Prior AI answer (not verified evidence)" | 800 chars each |
+| `Kept highlight` | instead of the conversation, for a highlight kept without comment | — |
 
 Each thread is capped at 2,900 bytes: the longest field is halved until it fits, and the cut is marked `… [truncated]`. The whole block stays under `CONTEXT_BYTES` (9,000). Not included: messages older than the last 4, tags, and the other page's article, summary and reader notes.
 
