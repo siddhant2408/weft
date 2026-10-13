@@ -63,7 +63,7 @@
       <p class="help small">Replies count toward your ChatGPT plan's usage, shared with ChatGPT itself; on Plus that includes the 5-hour limit. Set how much Margin may use, or disconnect it, at <a href="https://chatgpt.com/settings/usage" target="_blank" rel="noopener">ChatGPT settings → Usage</a>. Your sign-in is stored in Margin's own extension storage, out of reach of web pages, and sent only to OpenAI. A weekly cap there limits what a leaked sign-in could spend.</p>
     </div>
 
-    <p class="help small">The small model handles quick jobs: concept tags, one-line takeaways and picking related threads. Switching the main model re-sends the article on your next question.</p>
+    <p class="help small">The small model handles quick jobs: concept tags and one-line takeaways. Switching the main model re-sends the article on your next question.</p>
     <div class="row">
       <button class="btn" id="test">Test connection</button>
       <span class="status" id="conn" role="status"></span>
@@ -71,6 +71,20 @@
       <button class="btn primary" id="m-save">Save</button>
     </div>
     <div id="conn-err"></div>
+  </section>
+
+  <section aria-labelledby="h-related">
+    <h2 id="h-related">Related threads</h2>
+    <p class="help">Before a reply, Margin looks for threads on other pages that share a tag with this one. With a TypeSafe key, its Jev model scores how much each would help with your question, and only the useful ones (up to 3) are sent along with it. Without a key, the 3 with the most word overlap are sent.</p>
+    <div class="fields">
+      <label>TypeSafe API key <input type="password" id="t-key" autocomplete="off" placeholder="Optional"></label>
+      <p class="help small">For each candidate, Jev sees this thread's passage, question and recent messages, plus the candidate's page title, passage, takeaway, last question and last AI reply. Get a key at <a href="https://console.typesafe.ai" target="_blank" rel="noopener">console.typesafe.ai</a>. The key is sent only to TypeSafe.</p>
+    </div>
+    <div class="row">
+      <span class="spacer"></span>
+      <span class="status" id="t-status" role="status"></span>
+      <button class="btn primary" id="t-save">Save</button>
+    </div>
   </section>
 
   <section aria-labelledby="h-ex">

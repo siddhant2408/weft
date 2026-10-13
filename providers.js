@@ -12,7 +12,7 @@ const TIMEOUT_MS = 120000;
 const BASE = 'https://openrouter.ai/api/v1';
 // openrouter/free routes each call to one of OpenRouter's free models ($0, rate-limited, model varies per call).
 export const DEFAULT_MODEL = 'openrouter/free';
-// Small jobs (concept tags, takeaways, context selection) never include the article, so a fast cheap model loses no cache.
+// Small jobs (concept tags, takeaways) never include the article, so a fast cheap model loses no cache.
 export const DEFAULT_SMALL_MODEL = 'openrouter/free';
 
 // Server-sent events → {event, data} objects.
@@ -143,6 +143,23 @@ export const replierName = (s) => {
   const m = s?.openrouter?.model || DEFAULT_MODEL;
   return m === 'openrouter/free' ? 'AI' : m.split('/').pop();
 };
+
+// Jev (TypeSafe System One): typed judgments over `state`, e.g. a noul (probability of yes) per question.
+// Not streamed. settings.typesafe = {apiKey}; without one, callers fall back to code (docs.typesafe.ai/api).
+export const JUDGE_MODEL = 'jev-latest';
+export async function judge(state, questions) {
+  const apiKey = (await getSettings()).typesafe?.apiKey;
+  if (!apiKey) return { ok: false, code: 'NO_KEY', detail: 'No TypeSafe API key set.' };
+  try {
+    const res = await fetch('https://api.typesafe.ai/v1/systemone', { method: 'POST', signal: AbortSignal.timeout(20000),
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify({ model: JUDGE_MODEL, state, questions }) });
+    if (!res.ok) return httpError(res.status, await res.text().catch(() => ''));
+    return { ok: true, answers: (await res.json()).answers || {} };
+  } catch (e) {
+    return { ok: false, code: e?.name === 'TimeoutError' ? 'TIMEOUT' : 'NETWORK', detail: String(e?.message || e) };
+  }
+}
 
 // onText(fullTextSoFar) is called while streaming. req.small: a short job that goes to the small model.
 export async function ask(req, onText) {

@@ -13,7 +13,7 @@ function setStatus(id, text, cls = '') {
 const radios = () => [...document.querySelectorAll('input[name=provider]')];
 const provider = () => radios().find((r) => r.checked)?.value || 'openrouter';
 function showFields() {
-  document.querySelectorAll('.fields').forEach((f) => { f.hidden = f.dataset.for !== provider(); });
+  document.querySelectorAll('.fields[data-for]').forEach((f) => { f.hidden = f.dataset.for !== provider(); });
 }
 
 async function loadModel() {
@@ -23,6 +23,7 @@ async function loadModel() {
   $('o-key').value = o.apiKey || '';
   $('o-model').value = o.model || DEFAULT_MODEL;
   $('o-small').value = o.smallModel || DEFAULT_SMALL_MODEL;
+  $('t-key').value = s.typesafe?.apiKey || '';
   showFields();
   await loadChatGPT(s.chatgpt);
 }
@@ -109,6 +110,14 @@ $('o-load').addEventListener('click', async () => {
   }
   setTimeout(() => { btn.textContent = label; btn.disabled = false; }, 2500);
 });
+
+// --- Related threads ---
+$('t-save').addEventListener('click', async () => {
+  const { settings } = await chrome.storage.local.get('settings');
+  await chrome.storage.local.set({ settings: { ...settings, typesafe: { apiKey: $('t-key').value.trim() } } });
+  setStatus('t-status', 'Saved', 'ok');
+});
+$('t-key').addEventListener('input', () => setStatus('t-status', 'Unsaved changes'));
 
 // --- Excluded sites ---
 async function loadExcluded() {

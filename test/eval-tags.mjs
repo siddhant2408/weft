@@ -4,7 +4,7 @@
 //   MODEL=… SMALL_MODEL=…  the two models compared (both default to openrouter/free, which varies per call: set them)
 //   ALT_PROMPT=file.txt     also runs both models with this system prompt in place of CONCEPTS_SYS
 //   LIMIT=20                how many threads, newest first
-// Each thread is tagged as production tags it: transcript up to its first reply, known concepts from every other thread.
+// Each thread is tagged as production tags it: transcript up to its first question (before the first reply), known concepts from every other thread.
 import { readFileSync } from 'node:fs';
 import { norm, parseConcepts, vocabulary } from '../graph.js';
 import { env, models, ask, FATAL } from './eval-env.mjs';
@@ -35,7 +35,7 @@ for (const [i, {page, h}] of items.entries()) {
   // vocabulary as it would be without this thread's own tags (a fair stand-in for "at tag time")
   const known = vocabulary(pages.map((p) => ({...p, highlights: p.highlights.filter((x) => x !== h)})));
   const knownKeys = new Set(known.map(norm));
-  const first = {...h, messages: h.messages.slice(0, h.messages.findIndex((m) => m.role === 'assistant') + 1)};
+  const first = {...h, messages: h.messages.slice(0, h.messages.findIndex((m) => m.role === 'user') + 1)};
   const row = {stored: h.concepts || []};
   count('stored', row.stored, knownKeys);
   for (const v of variants) {
