@@ -1,8 +1,10 @@
 // Every thread across every page, newest page first, as a list or as a graph linking threads that share concepts.
 // Read-only view over chrome.storage.local.
 import { graphData, layout } from './graph.js';
+import { buildIndex, indexMatches, threadKey } from './thread-index.js';
 
 let pages = [], filter = 'all', query = '', view = 'list';
+let index = new Map();
 const $ = (id) => document.getElementById(id);
 const el = (tag, props = {}, ...kids) => {
   const n = Object.assign(document.createElement(tag), props);
@@ -14,6 +16,7 @@ async function load() {
   const all = await chrome.storage.local.get(null);
   pages = Object.entries(all).filter(([k]) => k.startsWith('page:')).map(([, v]) => v)
     .sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
+  index = new Map(buildIndex(pages).map(entry => [threadKey(entry.urlKey, entry.id), entry]));
   render();
 }
 
@@ -21,8 +24,7 @@ const matches = (h, page) => {
   if (filter === 'open' && h.status === 'resolved') return false;
   if (filter === 'resolved' && h.status !== 'resolved') return false;
   if (!query) return true;
-  const hay = [h.exact, h.takeaway, page.title, ...h.messages.map((m) => m.content)].join('\n').toLowerCase();
-  return query.split(/\s+/).every((w) => hay.includes(w));
+  return indexMatches(index.get(threadKey(page.urlKey, h.id)), query);
 };
 
 async function copy(btn, text) {
