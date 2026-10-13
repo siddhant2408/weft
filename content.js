@@ -595,6 +595,10 @@
       else paint();
       renderCard();
     }
+    if (area === 'local' && !changes['page:' + urlKey] && Object.keys(changes).some(k => k.startsWith('page:'))) {
+      ui.linksFor = null;  // another source changed: refresh discovery from the current index
+      renderCard();
+    }
     if (area === 'session') {
       for (const [k, { newValue }] of Object.entries(changes)) {
         const [kind, id] = [k.slice(0, k.indexOf(':')), k.slice(k.indexOf(':') + 1)];

@@ -17,12 +17,17 @@ globalThis.chrome = {
 const tagCalls = [];
 let tagReply = '';  // empty → no concepts, no write: keeps other tests' storage and mirror order untouched
 const sse = text => new Response(`data: ${JSON.stringify({choices: [{delta: {content: text}}]})}\n\ndata: [DONE]\n\n`);
-globalThis.fetch = (url, init) => JSON.parse(init.body).messages[0].content.startsWith('You tag')
-  ? (tagCalls.push(JSON.parse(init.body)), Promise.resolve(sse(tagReply)))
-  : new Promise(resolve => calls.push({
-  body: JSON.parse(init.body),
-  finish: () => resolve(new Response('data: {"choices":[{"delta":{"content":"answer"}}]}\n\ndata: [DONE]\n\n')),
-}));
+globalThis.fetch = (url, init) => {
+  const body = JSON.parse(init.body), sys = body.messages[0].content;
+  if (sys.startsWith('You tag')) return (tagCalls.push(body), Promise.resolve(sse(tagReply)));
+  if (sys.startsWith('You select')) {
+    const index = JSON.parse(sys.match(/<thread_index>\n([\s\S]*?)\n<\/thread_index>/)[1]);
+    return Promise.resolve(sse(JSON.stringify({ids:index.slice(0,2).map(e=>e.ref)})));
+  }
+  return new Promise(resolve => calls.push({body,
+    finish: () => resolve(new Response('data: {"choices":[{"delta":{"content":"answer"}}]}\n\ndata: [DONE]\n\n')),
+  }));
+};
 await import('../background.js');
 const msg = data => new Promise(resolve => listener(data, {id: 'test', tab: {id: 1}}, resolve));
 const wait = async predicate => { for (let i = 0; i < 100; i++) { if (predicate()) return; await new Promise(r => setTimeout(r, 1)); } throw Error('timeout'); };
@@ -156,7 +161,7 @@ await run('a "need the page" reply becomes a share button; sharing summarises an
   state['page:' + key].summary = null;
   const original = globalThis.fetch;
   let reply = 'Need the rest.\n[[need-page]]';
-  globalThis.fetch = (url, init) => JSON.parse(init.body).messages[0].content.startsWith('You tag') ? original(url, init) : new Promise(resolve => calls.push({ body: JSON.parse(init.body),
+  globalThis.fetch = (url, init) => /^You (tag|select)/.test(JSON.parse(init.body).messages[0].content) ? original(url, init) : new Promise(resolve => calls.push({ body: JSON.parse(init.body),
     finish: () => resolve(new Response(`data: ${JSON.stringify({choices: [{delta: {content: reply}}]})}\n\ndata: [DONE]\n\n`)) }));
   const first = send('h'); await wait(() => calls.length === 1);
   calls[0].finish(); await first;
@@ -193,19 +198,21 @@ await run('threads on other pages about the same idea reach the model: takeaways
     {id: 'o3', exact: 'unrelated', start: 2, status: 'open', concepts: ['Raft'], messages: [], createdAt: '2026-01-03'}]};
   const q = send('h', 'How does MVCC work here?'); await wait(() => calls.length === 1);
   const sys = calls[0].body.messages[0].content;
-  assert.match(sys, /<related_threads>\n\[R1\] On "other passage" in "Other" \(shared: MVCC\)\n  Concluded: Readers never block writers\.\n\[R2\] On "second" in "Other" \(shared: MVCC\)\n  Asked, still open: What does vacuum clean up\?/);
+  assert.match(sys, /Reader-approved takeaway.*Readers never block writers/);
+  assert.match(sys, /Open question.*What does vacuum clean up/);
   assert.doesNotMatch(sys, /unrelated/);
   calls[0].finish(); await q;
 });
-await run('a reply citing a related thread keeps a link to it; unknown ids are ignored', async () => {
+await run('a reply citing selected context keeps a link to its original passage', async () => {
   state['page:https://other.com/x'] = {urlKey: 'https://other.com/x', title: 'Other', highlights: [
     {id: 'o1', exact: 'other passage', start: 0, status: 'resolved', takeaway: 'T', concepts: ['MVCC'],
       messages: [{role: 'user', content: 'q'}, {role: 'assistant', content: 'Old rows   stay\nfor snapshots.'}], createdAt: '2026-01-02'}]};
   const original = globalThis.fetch;
-  globalThis.fetch = (url, init) => JSON.parse(init.body).messages[0].content.startsWith('You tag') ? original(url, init)
-    : new Promise(resolve => calls.push({body: JSON.parse(init.body), finish: () => resolve(new Response(`data: ${JSON.stringify({choices: [{delta: {content: 'Same as before [R1], not [R7].'}}]})}\n\ndata: [DONE]\n\n`))}));
+  globalThis.fetch = (url, init) => /^You (tag|select)/.test(JSON.parse(init.body).messages[0].content) ? original(url, init)
+    : new Promise(resolve => calls.push({body: JSON.parse(init.body), finish: () => resolve(new Response(`data: ${JSON.stringify({choices: [{delta: {content: 'Same as before [R1].'}}]})}\n\ndata: [DONE]\n\n`))}));
   const q = send('h', 'MVCC again?'); await wait(() => calls.length === 1);
-  assert.match(calls[0].body.messages[0].content, /What they learned there: Old rows stay for snapshots\./);
+  assert.match(calls[0].body.messages[0].content, /Prior AI answer \(not verified evidence\)/);
+  assert.match(calls[0].body.messages[0].content, /Old rows/);
   calls[0].finish(); await q;
   globalThis.fetch = original;
   assert.deepEqual(state['page:' + key].highlights[0].messages.at(-1).refs, {1: {urlKey: 'https://other.com/x', exact: 'other passage', title: 'Other'}});

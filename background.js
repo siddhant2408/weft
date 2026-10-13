@@ -1,7 +1,8 @@
 import { normaliseUrl } from './url.js';
 import { HOST, ask, getSettings, replierName } from './providers.js';
-import { connections, parseConcepts, relatedFor, vocabulary } from './graph.js';
-import { retrieveReply } from './retrieval.js';
+import { parseConcepts, vocabulary } from './graph.js';
+import { buildIndex, findCandidates } from './thread-index.js';
+import { answerWithContext, selectContext } from './retrieval.js';
 
 const SNAPSHOT_MAX_CHARS = 400000; // ≈100k tokens: what the summary call itself may read
 
@@ -22,7 +23,7 @@ const HINTS = {
   INCOMPLETE: 'The reply was interrupted or hit its output limit. Retry to get a complete answer.',
   BUSY: 'A reply is already in progress for this thread. Wait for it to finish.',
   CANCELLED: 'This request was cancelled because its page or thread was deleted.',
-  RETRIEVAL_INVALID: 'The model returned an invalid thread request or citation. Retry your question.',
+  SELECTION_INVALID: 'The model returned an invalid context selection or citation. Retry your question.',
   SOURCE_MISSING: 'A requested related thread no longer exists. Retry to refresh the related threads.',
 };
 const fail = (code, detail) => ({ error: { code, hint: (HINTS[code] && detail && /^API_|REFUSED/.test(code) ? `${HINTS[code]} (${detail})` : HINTS[code]) || detail || code } });
@@ -146,20 +147,6 @@ export function readerNotes(page, excludeId) {
     '</reader_notes>'].filter(Boolean).join('\n');
 }
 
-// What the reader concluded, asked and learned on other pages about the same ideas as this thread, numbered so the
-// model can cite them as [R1]. ponytail: last reply clipped to 500 chars; summarise threads if that proves too thin.
-const oneLine = (s, n) => snippet(s.replace(/\s+/g, ' ').trim(), n);
-export function relatedNotes(links) {
-  if (!links.length) return '';
-  return ['<related_threads>', ...links.map((l, i) => {
-    const q = l.messages?.filter((m) => m.role === 'user').at(-1);
-    const a = l.messages?.filter((m) => m.role === 'assistant').at(-1);
-    return [`[R${i + 1}] On "${snippet(l.exact)}" in "${snippet(l.title || l.urlKey, 80)}" (shared: ${l.shared.join(', ')})`,
-      l.takeaway ? `  Concluded: ${l.takeaway}` : q && `  Asked, still open: ${oneLine(q.content, 200)}`,
-      a && `  What they learned there: ${oneLine(a.content, 500)}`].filter(Boolean).join('\n');
-  }), '</related_threads>'].join('\n');
-}
-
 // The related threads a reply cited as [Rn], kept on the message so the UI can link each one to its passage.
 export function citedRefs(text, links) {
   const refs = {};
@@ -260,20 +247,20 @@ function runThread(urlKey, id, request) {
     const prompt = `${anchor}\n\nThread so far, oldest first:\n\n${transcript(t)}\n\nReply to my latest message.`;
     const system = await threadSystem(urlKey);
     const pages = await allPages();
-    const text = [t.exact, t.context, t.messages.filter((m) => m.role === 'user').at(-1)?.content].filter(Boolean).join(' ');
-    let links = relatedFor(pages, urlKey, id, text);
+    const query = { urlKey, id, passage: t.exact || '', context: t.context || '', concepts: t.concepts || [],
+      question: t.messages.filter(m => m.role === 'user').at(-1)?.content || '', recent: t.messages.slice(-4, -1) };
+    const candidates = findCandidates(buildIndex(pages), query);
     const localNotes = readerNotes(await getPage(urlKey), id);
-    const settings = await getSettings();
     if (request.cancelled) return fail('CANCELLED');
-    let res;
-    if (settings.provider === 'cli' && links.length) {
-      res = await retrieveReply({ system, notes: localNotes, prompt, candidates: links, ask,
+    const res = await answerWithContext({ system, notes: localNotes, prompt, query, candidates, ask,
+        select: (query, candidates) => selectContext({ query, candidates, ask }),
+        onText: text => onText(text.replace(needPageTail, '')),
         cancelled: () => request.cancelled,
         status: async (phase) => {
           if (!request.cancelled) await chrome.storage.session.set({ ['phase:' + request.key]: phase, ['pending:' + request.key]: Date.now() });
         },
         load: async (ids) => {
-          request.sources = ids.map(ref => links[Number(ref.slice(1)) - 1]);
+          request.sources = ids.map(ref => candidates[Number(ref.slice(1)) - 1]);
           const loaded = [];
           for (let i = 0; i < ids.length; i++) {
             const source = request.sources[i];
@@ -285,11 +272,7 @@ function runThread(urlKey, id, request) {
           return loaded;
         },
       });
-      links = res.links || [];
-    } else {
-      const notes = [localNotes, relatedNotes(links)].filter(Boolean).join('\n\n');
-      res = await ask({ system, notes, prompt }, (t) => onText(t.replace(needPageTail, '')));
-    }
+    const links = res.links || [];
     if (request.cancelled) return fail('CANCELLED');
     if (!res.ok) return fail(res.code, res.detail);
     const by = replierName(await getSettings());
@@ -457,7 +440,10 @@ const handlers = {
   'thread.connections': async (msg) => {
     const pages = await allPages();
     backfill(pages);
-    return { links: connections(pages, msg.urlKey, msg.id) };
+    const h = findThread(pages.find(p => p.urlKey === msg.urlKey), msg.id);
+    if (!h) return { links: [] };
+    return { links: findCandidates(buildIndex(pages), { urlKey: msg.urlKey, id: msg.id, passage: h.exact,
+      context: h.context, concepts: h.concepts, question: h.messages.filter(m => m.role === 'user').at(-1)?.content || '', recent: h.messages.slice(-3) }) };
   },
 
   'thread.reopen': (msg) => updateThread(msg.urlKey, msg.id, (h) => { h.status = 'open'; }),

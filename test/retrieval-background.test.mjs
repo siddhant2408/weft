@@ -18,15 +18,19 @@ function seed() {
  state['page:' + key] = {urlKey: key, title: 'Current', summary: {text: 'gist'}, highlights: [{id: 'h', exact: 'MVCC', context: 'context', concepts: ['MVCC'], messages: [], status: 'open'}]};
  state['page:' + other] = {urlKey: other, title: 'Postgres', highlights: [{id: 'old', exact: 'SOURCE_SECRET', context: 'source context', concepts: ['MVCC'], status: 'resolved', takeaway: 'Snapshot isolation', messages: [{role: 'user', content: 'Why?'}, {role: 'assistant', content: 'ANSWER_SECRET'}]}]};
 }
-const send = text => msg({type: 'thread.send', urlKey: key, id: 'h', text: text || 'Compare MVCC', ask: true});
+const send = text => msg({type: 'thread.send', urlKey: key, id: 'h', text: text || 'Why does this matter?', ask: true});
 const run = async (name, fn) => {seed(); await fn(); console.log('PASS', name);};
-await run('CLI direct reply sees only index; saves only text; leaves related links available', async () => {
+await run('ordinary question uses separate small selector; selecting none gives answer no cross-page context', async () => {
  const pending = send(); await wait(() => calls.length === 1);
  assert.match(calls[0].req.system, /thread_index|R1|Postgres/);
- assert.doesNotMatch(calls[0].req.system, /SOURCE_SECRET|ANSWER_SECRET/);
- calls[0].finish('{"action":"answer","text":"Direct."}'); assert.equal((await pending).ok, true);
- assert.equal(calls.length, 1);
- assert.deepEqual(state['page:' + key].highlights[0].messages.map(m => m.content), ['Compare MVCC', 'Direct.']);
+ assert.match(calls[0].req.system, /You select/);
+ assert.equal(calls[0].req.model, 'haiku');
+ calls[0].finish('{"ids":[]}'); await wait(() => calls.length === 2);
+ assert.doesNotMatch(calls[1].req.system, /SOURCE_SECRET|ANSWER_SECRET|<thread_index>\n/);
+ assert.equal(calls[1].req.model, 'opus');
+ calls[1].finish('Direct.'); assert.equal((await pending).ok, true);
+ assert.equal(calls.length, 2);
+ assert.deepEqual(state['page:' + key].highlights[0].messages.map(m => m.content), ['Why does this matter?', 'Direct.']);
  assert.equal(state['page:' + key].highlights[0].messages.at(-1).refs, undefined);
  assert.deepEqual(session, {});
  assert.equal((await msg({type: 'thread.connections', urlKey: key, id: 'h'})).links[0].id, 'old');
@@ -34,8 +38,8 @@ await run('CLI direct reply sees only index; saves only text; leaves related lin
 await run('CLI read loads fresh source and saves cited final reply, never protocol or excerpts', async () => {
  const pending = send(); await wait(() => calls.length === 1);
  state['page:' + other].highlights[0].messages.at(-1).content = 'FRESH_SOURCE_ANSWER';
- calls[0].finish('{"action":"read","ids":["R1"]}'); await wait(() => calls.length === 2);
- assert.equal(session['phase:h'], 'Checking a related thread…');
+ calls[0].finish('{"ids":["R1"]}'); await wait(() => calls.length === 2);
+ assert.equal(session['phase:h'], 'Answering…');
  assert.match(calls[1].req.system, /FRESH_SOURCE_ANSWER|Source passage|Reader-approved takeaway/);
  assert.doesNotMatch(calls[1].req.system, /ANSWER_SECRET/);
  calls[1].finish('Postgres differs [R1].'); assert.equal((await pending).ok, true);
@@ -46,7 +50,7 @@ await run('CLI read loads fresh source and saves cited final reply, never protoc
 });
 await run('sparse citation IDs keep their original mapping', async () => {
  state['page:' + other].highlights.push({...clone(state['page:' + other].highlights[0]), id: 'old2', exact: 'SECOND'});
- const pending = send(); await wait(() => calls.length === 1); calls[0].finish('{"action":"read","ids":["R2"]}'); await wait(() => calls.length === 2);
+ const pending = send(); await wait(() => calls.length === 1); calls[0].finish('{"ids":["R2"]}'); await wait(() => calls.length === 2);
  calls[1].finish('Second [R2].'); await pending;
  assert.equal(state['page:' + key].highlights[0].messages.at(-1).refs[2].exact, 'SECOND');
 });
@@ -55,34 +59,34 @@ await run('no candidates uses ordinary CLI call without JSON protocol', async ()
  assert.doesNotMatch(calls[0].req.system, /<thread_index>\n|Return ONLY one JSON/);
  calls[0].finish('Normal answer.'); assert.equal((await pending).ok, true);
 });
-for (const bad of ['plain text', '{"action":"read","ids":["R9"]}', '{"action":"read","ids":["R1","R1"]}']) {
+for (const bad of ['plain text', '{"ids":["R9"]}', '{"ids":["R1","R1"]}']) {
  await run('invalid protocol fails without loading: ' + bad, async () => {
   const pending = send(); await wait(() => calls.length === 1); calls[0].finish(bad);
-  assert.equal((await pending).error.code, 'RETRIEVAL_INVALID'); assert.equal(calls.length, 1);
+  assert.equal((await pending).error.code, 'SELECTION_INVALID'); assert.equal(calls.length, 1);
   assert.equal(state['page:' + key].highlights[0].messages.length, 1); assert.deepEqual(session, {});
  });
 }
 await run('missing requested source fails instead of using stale candidate snapshot', async () => {
  const pending = send(); await wait(() => calls.length === 1);
  await msg({type: 'page.delete', urlKey: other});
- calls[0].finish('{"action":"read","ids":["R1"]}'); assert.equal((await pending).error.code, 'SOURCE_MISSING');
+ calls[0].finish('{"ids":["R1"]}'); assert.equal((await pending).error.code, 'SOURCE_MISSING');
  assert.equal(calls.length, 1); assert.deepEqual(session, {});
 });
 for (const [type, urlKey, id] of [['page.delete', key], ['highlight.delete', key, 'h'], ['data.deleteAll', key], ['page.delete', other], ['highlight.delete', other, 'old']]) {
  await run('deletion during final call cancels retrieval: ' + type + ' ' + urlKey, async () => {
-  const pending = send(); await wait(() => calls.length === 1); calls[0].finish('{"action":"read","ids":["R1"]}'); await wait(() => calls.length === 2);
+  const pending = send(); await wait(() => calls.length === 1); calls[0].finish('{"ids":["R1"]}'); await wait(() => calls.length === 2);
   await msg({type, urlKey, id}); calls[1].finish('Late [R1].'); assert.equal((await pending).error.code, 'CANCELLED');
   assert.equal(state['page:' + key]?.highlights[0]?.messages.some(m => m.role === 'assistant') || false, false);
   assert.deepEqual(session, {});
  });
 }
 await run('old completion cannot clear recreated thread pending or phase', async () => {
- const old = send(); await wait(() => calls.length === 1); calls[0].finish('{"action":"read","ids":["R1"]}'); await wait(() => calls.length === 2);
+ const old = send(); await wait(() => calls.length === 1); calls[0].finish('{"ids":["R1"]}'); await wait(() => calls.length === 2);
  await msg({type: 'page.delete', urlKey: key});
  state['page:' + key] = {urlKey: key, title: 'New', highlights: [{id: 'h', exact: 'MVCC', context: '', concepts: ['MVCC'], messages: []}]};
- const fresh = send('Fresh'); await wait(() => calls.length === 3); calls[2].finish('{"action":"read","ids":["R1"]}'); await wait(() => calls.length === 4);
+ const fresh = send('Fresh'); await wait(() => calls.length === 3); calls[2].finish('{"ids":["R1"]}'); await wait(() => calls.length === 4);
  calls[1].finish('Old [R1].'); await old;
- assert.ok(session['pending:h']); assert.equal(session['phase:h'], 'Checking a related thread…');
+ assert.ok(session['pending:h']); assert.equal(session['phase:h'], 'Answering…');
  calls[3].finish('New [R1].'); await fresh;
  assert.deepEqual(state['page:' + key].highlights[0].messages.map(m => m.content), ['Fresh', 'New [R1].']); assert.deepEqual(session, {});
 });
