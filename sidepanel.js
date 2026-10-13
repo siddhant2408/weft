@@ -3,7 +3,7 @@
 // about the page as a whole. It also shows what the model is told about your reading.
 // Storage is the source of truth; this panel re-renders from it and sends writes through the background worker.
 let tabId = null, urlKey = null, page = null, orphans = [];
-let replier = 'Claude';             // who answers, from settings
+let replier = 'AI';                   // who answers, from settings
 const pending = new Set();          // pending keys waiting on the model (storage.session)
 const streams = {};                 // pending key → partial reply while the model streams
 const phases = {};                  // pending key → retrieval status
@@ -324,7 +324,8 @@ function render() {
 
 // ---------- wiring ----------
 function setReplier(settings) {
-  replier = (settings?.openrouter?.model || 'Claude').split('/').pop();
+  const m = settings?.openrouter?.model;
+  replier = !m || m === 'openrouter/free' ? 'AI' : m.split('/').pop();
 }
 chrome.storage.local.get('settings').then(({ settings }) => { setReplier(settings); render(); });
 

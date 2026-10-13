@@ -11,6 +11,7 @@ const HINTS = {
   NO_ARTICLE: 'Couldn\'t read this page. Reload the tab and try again.',
   NO_KEY: 'No OpenRouter API key set. Add one in Settings.',
   NO_CREDITS: 'Your OpenRouter account is out of credits. Top up at openrouter.ai/settings/credits.',
+  DATA_POLICY: 'Your OpenRouter privacy settings block this model. Free models need "free endpoints" allowed at openrouter.ai/settings/privacy.',
   BAD_KEY: 'OpenRouter rejected the API key. Check it in Settings.',
   BAD_MODEL: 'OpenRouter doesn\'t know that model. Check the model name in Settings.',
   RATE_LIMIT: 'Rate limited by OpenRouter. Wait a moment and retry.',

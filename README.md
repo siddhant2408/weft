@@ -4,7 +4,7 @@ Comment threads on anything you read, where the replies come from AI. Spec: Noti
 
 ## Setup (macOS)
 1. Chrome → `chrome://extensions` → Developer mode → Load unpacked → this folder.
-2. Settings → Model: paste an [OpenRouter](https://openrouter.ai/keys) API key. Replies use `anthropic/claude-sonnet-5.5` by default; quick jobs (concept tags, takeaways, picking related threads) use the small model, `anthropic/claude-haiku-5.5`. Both are editable and accept any OpenRouter model ID.
+2. Settings → Model: paste an [OpenRouter](https://openrouter.ai/keys) API key. Both the main model and the small model (concept tags, takeaways, picking related threads) default to `openrouter/free`, which routes each call to a random free model: $0, but rate-limited, quality varies call to call, and free providers may log or train on prompts (your passages and threads). Free models may also need "free endpoints" allowed in OpenRouter's privacy settings. Both fields accept any OpenRouter model ID, e.g. `anthropic/claude-sonnet-5.5` and `anthropic/claude-haiku-5.5`.
 3. Optional: `./native-host/install.sh` registers the native host that backs up notes to SQLite (extension ID is pinned by `key` in manifest.json).
 
 ## Checks

@@ -34,12 +34,12 @@
     <p class="help">Replies come from <a href="https://openrouter.ai" target="_blank" rel="noopener">OpenRouter</a>, pay per use, any model. Nothing is sent anywhere until you send a comment or click Summarise.</p>
     <div class="fields">
       <label>OpenRouter API key <input type="password" id="o-key" autocomplete="off" placeholder="sk-or-…"></label>
-      <label>Model <span class="with-btn"><input id="o-model" list="o-models" placeholder="anthropic/claude-sonnet-5.5" spellcheck="false"><button type="button" class="btn" id="o-load">Load models</button></span></label>
-      <label>Small model <input id="o-small" list="o-models" placeholder="anthropic/claude-haiku-5.5" spellcheck="false"></label>
+      <label>Model <span class="with-btn"><input id="o-model" list="o-models" placeholder="openrouter/free" spellcheck="false"><button type="button" class="btn" id="o-load">Load models</button></span></label>
+      <label>Small model <input id="o-small" list="o-models" placeholder="openrouter/free" spellcheck="false"></label>
       <datalist id="o-models"></datalist>
     </div>
 
-    <p class="help small">The small model handles quick jobs: concept tags, one-line takeaways and picking related threads. Switching the main model re-sends the article on your next question.</p>
+    <p class="help small">The default, <code>openrouter/free</code>, costs nothing but picks a random free model each call, is rate-limited, and free providers may log or train on what you send. Set a paid model (e.g. <code>anthropic/claude-sonnet-5.5</code>) for steadier, private replies. The small model handles quick jobs: concept tags, one-line takeaways and picking related threads. Switching the main model re-sends the article on your next question.</p>
     <p class="help small">The API key is stored in this Chrome profile's extension storage and sent only to OpenRouter.</p>
     <div class="row">
       <button class="btn" id="test">Test connection</button>

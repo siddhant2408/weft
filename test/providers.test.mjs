@@ -39,7 +39,7 @@ assert.equal(lastReq.body.messages[0].content, 'SYS\n\nNOTES');
 // Small jobs → small model; defaults when unset
 serve('data: [DONE]\n\n');
 await ask({ small: true, system: 'S', prompt: 'P' });
-assert.equal(lastReq.body.model, 'anthropic/claude-haiku-5.5');
+assert.equal(lastReq.body.model, 'openrouter/free');
 settings.openrouter.smallModel = 'google/gemini-3.8-flash';
 serve('data: [DONE]\n\n');
 await ask({ small: true, system: 'S', prompt: 'P' });
@@ -47,8 +47,10 @@ assert.equal(lastReq.body.model, 'google/gemini-3.8-flash');
 settings = { openrouter: { apiKey: 'k' } };
 serve('data: [DONE]\n\n');
 await ask({ system: 'S', prompt: 'P' });
-assert.equal(lastReq.body.model, 'anthropic/claude-sonnet-5.5');
-assert.equal(replierName(await getSettings()), 'claude-sonnet-5.5');
+assert.equal(lastReq.body.model, 'openrouter/free');
+assert.equal(lastReq.body.messages[0].content, 'S', 'free router gets a plain system string');
+assert.equal(replierName(await getSettings()), 'AI');
+assert.equal(replierName({ openrouter: { model: 'anthropic/claude-sonnet-5.5' } }), 'claude-sonnet-5.5');
 
 // Older settings with an OpenRouter key under "openai" keep working
 settings = { provider: 'openai', openai: { baseUrl: 'https://openrouter.ai/api/v1', apiKey: 'old', model: 'openai/gpt-x' } };
@@ -68,6 +70,8 @@ assert.equal(r.code, 'API_ERROR'); assert.match(r.detail, /overloaded/);
 serve(JSON.stringify({ error: { message: 'No auth credentials found' } }), 401);
 r = await ask({ system: 'S', prompt: 'P' });
 assert.equal(r.code, 'BAD_KEY'); assert.match(r.detail, /No auth/);
+serve(JSON.stringify({ error: { message: 'No endpoints found matching your data policy (Free model publication)' } }), 404);
+assert.equal((await ask({ system: 'S', prompt: 'P' })).code, 'DATA_POLICY');
 for (const [status, code] of [[402, 'NO_CREDITS'], [404, 'BAD_MODEL'], [429, 'RATE_LIMIT'], [502, 'API_DOWN']]) {
   serve('x', status);
   assert.equal((await ask({ system: 'S', prompt: 'P' })).code, code);

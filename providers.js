@@ -6,9 +6,10 @@
 export const HOST = 'com.margin.host';  // native host: SQLite mirror only
 const TIMEOUT_MS = 120000;
 const BASE = 'https://openrouter.ai/api/v1';
-export const DEFAULT_MODEL = 'anthropic/claude-sonnet-5.5';
+// openrouter/free routes each call to one of OpenRouter's free models ($0, rate-limited, model varies per call).
+export const DEFAULT_MODEL = 'openrouter/free';
 // Small jobs (concept tags, takeaways, context selection) never include the article, so a fast cheap model loses no cache.
-export const DEFAULT_SMALL_MODEL = 'anthropic/claude-haiku-5.5';
+export const DEFAULT_SMALL_MODEL = 'openrouter/free';
 
 // Server-sent events → {event, data} objects.
 async function* sse(body) {
@@ -35,7 +36,7 @@ async function* sse(body) {
 
 function httpError(status, detail) {
   const code = status === 401 || status === 403 ? 'BAD_KEY' : status === 402 ? 'NO_CREDITS' : status === 429 ? 'RATE_LIMIT'
-    : status === 404 ? 'BAD_MODEL' : status >= 500 ? 'API_DOWN' : 'API_ERROR';
+    : status === 404 ? (/data policy/i.test(detail) ? 'DATA_POLICY' : 'BAD_MODEL') : status >= 500 ? 'API_DOWN' : 'API_ERROR';
   return { ok: false, code, detail: `HTTP ${status}: ${detail}`.slice(0, 500) };
 }
 
@@ -94,7 +95,8 @@ export async function getSettings() {
 }
 
 // What the UI should call the replier: the model's short name.
-export const replierName = (s) => (s?.openrouter?.model || DEFAULT_MODEL).split('/').pop();
+// The free router picks a different model each call, so it gets a generic name.
+export const replierName = (s) => { const m = s?.openrouter?.model || DEFAULT_MODEL; return m === 'openrouter/free' ? 'AI' : m.split('/').pop(); };
 
 // onText(fullTextSoFar) is called while streaming. req.small: a short job that goes to the small model.
 export async function ask(req, onText) {
