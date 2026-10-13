@@ -12,7 +12,7 @@ globalThis.chrome = {
   sidePanel: { setPanelBehavior: async () => {} },
   runtime: { id: 'test', onMessage: { addListener: f => listener = f },
     sendNativeMessage: (host, m, cb) => { mirrored.push(m.mirror); setTimeout(() => cb({ok: true})); } },
-  tabs: {onUpdated: {addListener() {}},  sendMessage: async () => ({title: 'Article', text: 'LIVE ARTICLE'}) },
+  tabs: { sendMessage: async () => ({title: 'Article', text: 'LIVE ARTICLE'}) },
 };
 const tagCalls = [];
 let tagReply = '';  // empty → no concepts, no write: keeps other tests' storage and mirror order untouched

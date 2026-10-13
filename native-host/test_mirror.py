@@ -37,4 +37,4 @@ print("bad mirror requests rejected")
 
 r = call({"system": "x", "prompt": "Reply with exactly: pong"})
 assert r["code"] == "BAD_REQUEST", r
-print("model requests rejected: the host only mirrors")
+print("model requests rejected")

@@ -10,7 +10,7 @@ mkdir -p "$DEST"
 cat > "$DEST/$HOST_NAME.json" <<EOF
 {
   "name": "$HOST_NAME",
-  "description": "Margin: mirrors notes to a local SQLite file",
+  "description": "Margin: mirrors notes to SQLite and keeps the ChatGPT sign-in",
   "path": "$DIR/host.py",
   "type": "stdio",
   "allowed_origins": ["chrome-extension://$EXT_ID/"]

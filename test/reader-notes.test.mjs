@@ -6,7 +6,6 @@ globalThis.chrome = {
   sidePanel: { setPanelBehavior: async () => {} },
   storage: { session: { setAccessLevel: async () => {} }, local: {} },
   runtime: { onMessage: { addListener: noop } },
-  tabs: { onUpdated: { addListener: noop } },
 };
 const { readerNotes } = await import('../background.js');
 

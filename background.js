@@ -17,6 +17,9 @@ const HINTS = {
   PLAN_LIMIT: 'You\'ve reached your ChatGPT plan\'s limit for Margin. Check chatgpt.com/settings/usage, or switch to OpenRouter in Settings.',
   PLAN_INELIGIBLE: 'This ChatGPT account or workspace can\'t share its plan with apps. Use OpenRouter in Settings.',
   SIGNIN_DECLINED: 'ChatGPT sign-in was cancelled.',
+  SIGNIN_TIMEOUT: 'ChatGPT sign-in wasn\'t finished within 5 minutes. Try again.',
+  HOST_MISSING: 'Sign in with ChatGPT needs Margin\'s native host. Run native-host/install.sh, then reload the extension.',
+  HOST_ERROR: 'Margin\'s native host failed. Check ~/Library/Logs/margin-host.log, then try again.',
   SIGNIN_FAILED: 'ChatGPT sign-in failed. Try again.',
   NO_CREDITS: 'Your OpenRouter account is out of credits. Top up at openrouter.ai/settings/credits.',
   DATA_POLICY: 'Your OpenRouter privacy settings block this model. Free models need "free endpoints" allowed at openrouter.ai/settings/privacy.',
@@ -451,9 +454,25 @@ const handlers = {
 
   'thread.reopen': (msg) => updateThread(msg.urlKey, msg.id, (h) => { h.status = 'open'; }),
 
-  'chatgpt.signin': () => ChatGPT.signIn(),
+  // Resolves when the user finishes in the browser (the host waits up to 5 minutes). Success switches replies to
+  // ChatGPT, defaulting both models to the account's first listed one.
+  'chatgpt.signin': async () => {
+    const res = await ChatGPT.signIn();
+    if (!res.ok) return fail(res.code, res.detail);
+    const s = await getSettings();
+    const first = (await ChatGPT.models()).models?.[0]?.slug;
+    const { settings } = await chrome.storage.local.get('settings');
+    await chrome.storage.local.set({ settings: { ...settings, provider: 'chatgpt',
+      chatgpt: { model: s.chatgpt.model || first, smallModel: s.chatgpt.smallModel || first } } });
+    return res;
+  },
+  'chatgpt.status': async () => {
+    const res = await ChatGPT.status();
+    return res.ok ? res : fail(res.code, res.detail);
+  },
   'chatgpt.signout': async () => {
     const res = await ChatGPT.signOut();
+    if (!res.ok) return fail(res.code, res.detail);
     const { settings } = await chrome.storage.local.get('settings');
     await chrome.storage.local.set({ settings: { ...settings, provider: 'openrouter' } });
     return res;
@@ -464,21 +483,7 @@ const handlers = {
   },
 };
 
-// Sign in with ChatGPT ends by sending its tab to a 127.0.0.1 address nothing listens on; this catches it. A successful
-// sign-in switches replies to ChatGPT, defaulting both models to the account's first listed one. The outcome goes to
-// storage.session for the Settings page, which may have been closed meanwhile.
-chrome.tabs.onUpdated.addListener(async (tabId, info) => {
-  const res = await ChatGPT.handleRedirect(tabId, info.url);
-  if (!res) return;
-  if (res.ok) {
-    const s = await getSettings();
-    const first = (await ChatGPT.models()).models?.[0]?.slug;
-    const { settings } = await chrome.storage.local.get('settings');
-    await chrome.storage.local.set({ settings: { ...settings, provider: 'chatgpt',
-      chatgpt: { model: s.chatgpt.model || first, smallModel: s.chatgpt.smallModel || first } } });
-  }
-  await chrome.storage.session.set({ 'chatgpt.result': res.ok ? { ok: true, email: res.email, at: Date.now() } : { ...fail(res.code, res.detail), at: Date.now() } });
-});
+ChatGPT.dropBrowserTokens().catch(() => {});  // tokens from builds that kept them in extension storage
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (sender.id !== chrome.runtime.id) return;

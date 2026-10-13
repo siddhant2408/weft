@@ -27,13 +27,15 @@ async function loadModel() {
 }
 
 // Signed in: who, plus model pickers filled from the account's catalogue. Signed out: just the sign-in button.
+// The native host holds the sign-in, so it answers whether there is one.
 async function loadChatGPT(chosen) {
-  const { chatgpt: auth = {} } = await chrome.storage.local.get('chatgpt');
-  const signedIn = !!auth.refreshToken;
+  const st = await bg({ type: 'chatgpt.status' });
+  const signedIn = !!st?.signedIn;
   $('g-signin').hidden = signedIn;
   $('g-signout').hidden = !signedIn;
   $('g-models').hidden = true;
-  setStatus('g-who', signedIn ? `Signed in as ${auth.email || 'your ChatGPT account'}` : 'Not signed in');
+  if (st?.error) return setStatus('g-who', st.error.hint, 'err');
+  setStatus('g-who', signedIn ? `Signed in as ${st.email || 'your ChatGPT account'}` : 'Not signed in');
   if (!signedIn) return;
   const res = await bg({ type: 'chatgpt.models' });
   if (!res?.ok) return setStatus('g-who', res?.error?.hint || 'Couldn\'t load your models', 'err');
@@ -59,21 +61,18 @@ radios().forEach((r) => r.addEventListener('change', () => { showFields(); setSt
 for (const id of ['o-key', 'o-model', 'o-small', 'g-model', 'g-small']) $(id).addEventListener('input', () => setStatus('conn', 'Unsaved changes'));
 
 $('g-signin').addEventListener('click', async () => {
-  await chrome.storage.session.remove('chatgpt.result');
+  $('g-signin').disabled = true;
+  setStatus('g-who', 'Finish signing in in your browser…');
   const res = await bg({ type: 'chatgpt.signin' });
-  setStatus('g-who', res?.ok ? 'Finish signing in in the ChatGPT tab…' : res?.error?.hint || 'Couldn\'t start sign-in', res?.ok ? '' : 'err');
+  $('g-signin').disabled = false;
+  await loadModel();
+  if (!res?.ok) setStatus('g-who', res?.error?.hint || 'Sign-in failed', 'err');
 });
 $('g-signout').addEventListener('click', async () => {
   const res = await bg({ type: 'chatgpt.signout' });
   await loadModel();
-  if (res?.ok && !res.revoked) setStatus('g-who', 'Signed out here. Couldn\'t confirm with OpenAI: disconnect Margin in ChatGPT settings if needed.', 'err');
-});
-// The background worker finishes sign-in when the ChatGPT tab redirects, then reports here.
-chrome.storage.onChanged.addListener(async (changes, area) => {
-  const r = area === 'session' && changes['chatgpt.result']?.newValue;
-  if (!r) return;
-  await loadModel();
-  if (!r.ok) setStatus('g-who', r.error?.hint || 'Sign-in failed', 'err');
+  if (res?.error) setStatus('g-who', res.error.hint, 'err');
+  else if (!res?.revoked) setStatus('g-who', 'Signed out here. Couldn\'t confirm with OpenAI: disconnect Margin in ChatGPT settings if needed.', 'err');
 });
 
 $('m-save').addEventListener('click', saveModel);

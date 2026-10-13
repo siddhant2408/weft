@@ -1,12 +1,24 @@
-// Sign in with ChatGPT: sign-in URL, redirect capture, token checks, refresh, sign-out and the Responses stream.
-// Fake chrome storage/tabs and a fake auth.openai.com / api.openai.com. Run: node test/chatgpt.test.mjs
+// Sign in with ChatGPT, extension side: the native host is faked (its own test is native-host/test_chatgpt.py).
+// Covers host messaging, access-token caching, the Responses stream, plan errors and dropping old browser-held tokens.
+// Run: node test/chatgpt.test.mjs
 import assert from 'node:assert/strict';
 
-const local = {}, session = {}, closed = [], opened = [];
+const local = {};
 const area = (obj) => ({ get: async (k) => (k in obj ? { [k]: structuredClone(obj[k]) } : {}), set: async (d) => Object.assign(obj, structuredClone(d)),
   remove: async (k) => { delete obj[k]; } });
-globalThis.chrome = { storage: { local: area(local), session: area(session) },
-  tabs: { create: async ({ url }) => (opened.push(url), { id: 7 }), remove: async (id) => { closed.push(id); } } };
+let hostReply = () => ({ ok: true }), hostCalls = [], hostMissing = false;
+globalThis.chrome = { storage: { local: area(local) }, runtime: {
+  lastError: undefined,
+  connectNative(name) {
+    if (hostMissing) throw new Error('Specified native messaging host not found.');
+    const on = { msg: [], disc: [] };
+    return { onMessage: { addListener: (f) => on.msg.push(f) }, onDisconnect: { addListener: (f) => on.disc.push(f) }, disconnect() {},
+      postMessage(req) {
+        hostCalls.push({ name, req });
+        const res = hostReply(req);
+        setTimeout(() => (res === null ? on.disc.forEach((f) => f()) : on.msg.forEach((f) => f(res))));
+      } };
+  } } };
 
 let routes = {}, seen = [];
 globalThis.fetch = async (url, init = {}) => {
@@ -16,137 +28,86 @@ globalThis.fetch = async (url, init = {}) => {
   return routes[route](init);
 };
 const json = (body, status = 200) => new Response(JSON.stringify(body), { status });
-const b64 = (o) => Buffer.from(JSON.stringify(o)).toString('base64url');
-const jwt = (claims) => `h.${b64(claims)}.sig`;
 
 const G = await import('../chatgpt.js');
 const { ask } = await import('../providers.js');
-const TOKEN = 'https://auth.openai.com/api/accounts/oauth/token';
 
-// 1. First sign-in: dynamic registration URL with PKCE; the pending attempt survives in storage.session.
-await G.signIn();
-const authUrl = new URL(opened[0]);
-const p = Object.fromEntries(authUrl.searchParams);
-assert.equal(authUrl.origin + authUrl.pathname, 'https://auth.openai.com/api/accounts/authorize');
-assert.equal(p.client_id, 'dynamic_agent_client');
-assert.equal(p.agent_name_hint, 'Margin');
-assert.equal(p.redirect_uri, 'http://127.0.0.1:1455/auth/callback');
-assert.equal(p.resource, 'https://api.openai.com/v1');
-assert.match(p.scope, /chatgpt\.tokens\.use\.direct/);
-assert.equal(p.code_challenge_method, 'S256');
-assert.match(p.ext_agent_host_id, /^urn:uuid:/);
-const pending = session['chatgpt.pending'];
-assert.equal(pending.tabId, 7);
-const { createHash } = await import('node:crypto');
-assert.equal(p.code_challenge, createHash('sha256').update(pending.verifier).digest('base64url'), 'challenge is S256 of the verifier');
-
-// 2. Other tabs and URLs are ignored; a wrong state is rejected without a token request.
-assert.equal(await G.handleRedirect(8, 'http://127.0.0.1:1455/auth/callback?code=c&state=' + pending.state), null);
-assert.equal(await G.handleRedirect(7, 'https://auth.openai.com/u/login'), null);
-assert.equal((await G.finishSignIn(pending, new URLSearchParams({ code: 'c', state: 'nope', client_id: 'oaiapp_1' }))).code, 'SIGNIN_FAILED');
-assert.equal((await G.finishSignIn(pending, new URLSearchParams({ error: 'access_denied', state: pending.state }))).code, 'SIGNIN_DECLINED');
-assert.equal(seen.length, 0);
-
-// 3. Callback: closes the tab, exchanges the code with the issued client ID, checks the ID token, stores the tokens.
-const now = Math.floor(Date.now() / 1000);
-let idClaims = { iss: 'https://auth.openai.com', aud: 'oaiapp_1', nonce: pending.nonce, exp: now + 3600, sub: 'user-1', email: 'me@example.com' };
-const grant = (over = {}) => json({ access_token: 'A1', refresh_token: 'R1', id_token: jwt(idClaims), expires_in: 3600,
-  scope: 'chatgpt.tokens.use.direct email offline_access openid profile resource.invoke', ...over });
-routes = { [TOKEN]: () => grant() };
-let res = await G.handleRedirect(7, `http://127.0.0.1:1455/auth/callback?code=CODE&state=${pending.state}&client_id=oaiapp_1`);
-assert.deepEqual(res, { ok: true, email: 'me@example.com' });
-assert.deepEqual(closed, [7]);
-assert.equal(session['chatgpt.pending'], undefined);
-assert.deepEqual(seen[0].form, { grant_type: 'authorization_code', client_id: 'oaiapp_1', code: 'CODE', code_verifier: pending.verifier,
-  redirect_uri: 'http://127.0.0.1:1455/auth/callback', resource: 'https://api.openai.com/v1' });
-assert.equal(local.chatgpt.clientId, 'oaiapp_1');
-assert.equal(local.chatgpt.refreshToken, 'R1');
-assert.equal(local.chatgpt.email, 'me@example.com');
-
-// A bad nonce or audience fails; no plan scope signs in but cannot reply.
-for (const bad of [{ nonce: 'x' }, { aud: 'someone-else' }, { iss: 'https://evil.example' }]) {
-  const saved = idClaims; idClaims = { ...idClaims, ...bad };
-  assert.equal((await G.finishSignIn({ ...pending, clientId: null }, new URLSearchParams({ code: 'c', state: pending.state, client_id: 'oaiapp_1' }))).code, 'SIGNIN_FAILED', JSON.stringify(bad));
-  idClaims = saved;
-}
-const before = structuredClone(local.chatgpt);
-routes = { [TOKEN]: () => grant({ scope: 'openid email profile offline_access' }) };
-assert.equal((await G.finishSignIn({ ...pending, clientId: 'oaiapp_1' }, new URLSearchParams({ code: 'c', state: pending.state }))).code, 'PLAN_NOT_GRANTED');
-assert.equal((await G.accessToken()).code, 'PLAN_NOT_GRANTED');
-local.chatgpt = before;
-
-// 4. Returning sign-in reuses the issued client ID and hints, and drops the registration name.
-opened.length = 0;
-await G.signIn();
-const again = Object.fromEntries(new URL(opened[0]).searchParams);
-assert.equal(again.client_id, 'oaiapp_1');
-assert.equal(again.agent_name_hint, undefined);
-assert.equal(again.login_hint, 'me@example.com');
-assert.equal(again.ext_agent_host_id, p.ext_agent_host_id, 'host ID is stable');
-
-// 5. Fresh token is used as is; an expiring one is refreshed once even when asked concurrently.
+// 1. Access tokens come from the host and are cached until a minute before expiry.
+hostReply = (req) => (req.chatgpt === 'token' ? { ok: true, token: 'A1', expiresAt: Date.now() + 3600000 } : { ok: true });
 assert.deepEqual(await G.accessToken(), { ok: true, token: 'A1' });
-local.chatgpt.expiresAt = Date.now() + 30000;
-seen = [];
-let refreshes = 0;
-routes = { [TOKEN]: async () => (refreshes++, await new Promise((r) => setTimeout(r, 5)), grant({ access_token: 'A2', refresh_token: 'R2', id_token: undefined })) };
-const both = await Promise.all([G.accessToken(), G.accessToken()]);
-assert.deepEqual(both, [{ ok: true, token: 'A2' }, { ok: true, token: 'A2' }]);
-assert.equal(refreshes, 1, 'refresh tokens rotate, so only one refresh may run');
-assert.deepEqual(seen[0].form, { grant_type: 'refresh_token', client_id: 'oaiapp_1', refresh_token: 'R1', resource: 'https://api.openai.com/v1' });
-assert.equal(local.chatgpt.refreshToken, 'R2');
-assert.ok(local.chatgpt.idToken, 'ID token kept when a refresh omits it');
+assert.deepEqual(await G.accessToken(), { ok: true, token: 'A1' });
+assert.equal(hostCalls.length, 1, 'cached within the hour');
+assert.deepEqual(hostCalls[0], { name: 'com.margin.host', req: { chatgpt: 'token' } });
+G.forgetToken();
+hostReply = () => ({ ok: true, token: 'A2', expiresAt: Date.now() + 30000 });  // expires within the minute: not cached
+await G.accessToken(); await G.accessToken();
+assert.equal(hostCalls.length, 3);
 
-// 6. Responses API: instructions + input, store false, stream true; text deltas until response.completed.
+// Host errors pass through; a missing host is HOST_MISSING; a host that dies is HOST_ERROR.
+G.forgetToken();
+hostReply = () => ({ ok: false, code: 'SIGNED_OUT' });
+assert.equal((await G.accessToken()).code, 'SIGNED_OUT');
+hostMissing = true;
+assert.equal((await G.accessToken()).code, 'HOST_MISSING');
+hostMissing = false;
+hostReply = () => null;
+assert.equal((await G.accessToken()).code, 'HOST_ERROR');
+hostReply = (req) => ({ ok: true, signedIn: true, email: 'me@example.com', plan: true, req });
+assert.equal((await G.status()).email, 'me@example.com');
+assert.deepEqual(hostCalls.at(-1).req, { chatgpt: 'status' });
+await G.signIn(); assert.deepEqual(hostCalls.at(-1).req, { chatgpt: 'signin' });
+await G.signOut(); assert.deepEqual(hostCalls.at(-1).req, { chatgpt: 'signout' });
+
+// 2. Responses API: instructions + input, store false, stream true; text deltas until response.completed.
+hostReply = () => ({ ok: true, token: 'A3', expiresAt: Date.now() + 3600000 });
 const sse = (...events) => new Response(events.map((e) => `event: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`).join(''));
 local.settings = { provider: 'chatgpt', chatgpt: { model: 'gpt-6-luna', smallModel: 'gpt-5.6-luna' } };
 routes = { 'https://api.openai.com/v1/responses': () => sse({ type: 'response.created' }, { type: 'response.output_text.delta', delta: 'Hel' },
   { type: 'response.output_text.delta', delta: 'lo' }, { type: 'response.completed' }) };
-seen = [];
 const partials = [];
-res = await ask({ system: 'SYS', notes: 'NOTES', prompt: 'P' }, (t) => partials.push(t));
+let res = await ask({ system: 'SYS', notes: 'NOTES', prompt: 'P' }, (t) => partials.push(t));
 assert.deepEqual(res, { ok: true, text: 'Hello' });
 assert.deepEqual(partials, ['Hel', 'Hello']);
-assert.deepEqual(seen[0].json, { model: 'gpt-6-luna', instructions: 'SYS\n\nNOTES', input: [{ role: 'user', content: 'P' }], store: false, stream: true });
-assert.equal(seen[0].init.headers.authorization, 'Bearer A2');
+assert.deepEqual(seen.at(-1).json, { model: 'gpt-6-luna', instructions: 'SYS\n\nNOTES', input: [{ role: 'user', content: 'P' }], store: false, stream: true });
+assert.equal(seen.at(-1).init.headers.authorization, 'Bearer A3');
 await ask({ small: true, system: 'S', prompt: 'P' });
 assert.equal(seen.at(-1).json.model, 'gpt-5.6-luna');
 
-// Plan errors: before the stream (HTTP) and mid-stream (response.failed); a stream without completion is incomplete.
+// Plan errors before the stream (HTTP) and mid-stream; a stream that never completes is incomplete.
 routes['https://api.openai.com/v1/responses'] = () => json({ error: { code: 'subscription_sharing_usage_limit_exceeded', message: 'limit' } }, 429);
 assert.equal((await ask({ system: 'S', prompt: 'P' })).code, 'PLAN_LIMIT');
-routes['https://api.openai.com/v1/responses'] = () => json({ detail: 'Unauthorized' }, 401);
-assert.equal((await ask({ system: 'S', prompt: 'P' })).code, 'SIGNED_OUT');
 routes['https://api.openai.com/v1/responses'] = () => sse({ type: 'response.output_text.delta', delta: 'x' },
   { type: 'response.failed', response: { error: { code: 'subscription_sharing_usage_limit_exceeded', message: 'limit' } } });
 assert.equal((await ask({ system: 'S', prompt: 'P' })).code, 'PLAN_LIMIT');
 routes['https://api.openai.com/v1/responses'] = () => sse({ type: 'response.output_text.delta', delta: 'x' });
 assert.equal((await ask({ system: 'S', prompt: 'P' })).code, 'INCOMPLETE');
+// A 401 means the token is dead: report signed out and ask the host again next time.
+routes['https://api.openai.com/v1/responses'] = () => json({ detail: 'Unauthorized' }, 401);
+const before = hostCalls.length;
+assert.equal((await ask({ system: 'S', prompt: 'P' })).code, 'SIGNED_OUT');
+await G.accessToken();
+assert.equal(hostCalls.length, before + 1, 'cached token dropped after a 401');
 
-// 7. Model catalogue: listed models only, server order.
+// Not signed in explains a missing model better than "pick a model".
+local.settings.chatgpt = {};
+G.forgetToken();
+hostReply = () => ({ ok: false, code: 'SIGNED_OUT' });
+assert.equal((await ask({ system: 'S', prompt: 'P' })).code, 'SIGNED_OUT');
+hostReply = () => ({ ok: true, token: 'A4', expiresAt: Date.now() + 3600000 });
+assert.equal((await ask({ system: 'S', prompt: 'P' })).code, 'NO_MODEL');
+
+// 3. Model catalogue: listed models only, server order.
 routes['https://api.openai.com/v1/models'] = () => json({ models: [{ slug: 'gpt-6-luna', display_name: 'GPT-6 Luna', visibility: 'list' },
   { slug: 'hidden', visibility: 'hide' }, { slug: 'gpt-5.6-luna', visibility: 'list' }] });
 assert.deepEqual(await G.models(), { ok: true, models: [{ slug: 'gpt-6-luna', name: 'GPT-6 Luna' }, { slug: 'gpt-5.6-luna', name: 'gpt-5.6-luna' }] });
 
-// 8. A dead refresh token signs out but keeps the client and host IDs; a network failure keeps everything.
-local.chatgpt.expiresAt = 0;
-routes = { [TOKEN]: () => { throw new TypeError('offline'); } };
-assert.equal((await G.accessToken()).code, 'NETWORK');
-assert.equal(local.chatgpt.refreshToken, 'R2');
-routes = { [TOKEN]: () => json({ error: 'refresh_token_reused' }, 400) };
-assert.equal((await G.accessToken()).code, 'SIGNED_OUT');
-assert.equal(local.chatgpt.refreshToken, undefined);
-assert.equal(local.chatgpt.clientId, 'oaiapp_1');
-assert.equal((await ask({ system: 'S', prompt: 'P' })).code, 'SIGNED_OUT');
-local.settings.chatgpt = {};
-assert.equal((await ask({ system: 'S', prompt: 'P' })).code, 'SIGNED_OUT', 'signed out beats "pick a model"');
-
-// 9. Sign-out revokes the refresh token, then forgets tokens but keeps client/host IDs and email.
-local.chatgpt = { ...local.chatgpt, refreshToken: 'R3', accessToken: 'A3', idToken: 'I3', expiresAt: Date.now() + 3600000 };
-seen = [];
-routes = { 'https://auth.openai.com/.well-known/openid-configuration': () => json({ revocation_endpoint: 'https://auth.openai.com/oauth/revoke' }),
-  'https://auth.openai.com/oauth/revoke': () => new Response('', { status: 200 }) };
-assert.deepEqual(await G.signOut(), { ok: true, revoked: true });
-assert.deepEqual(seen[1].form, { token: 'R3', token_type_hint: 'refresh_token', client_id: 'oaiapp_1' });
-assert.deepEqual(Object.keys(local.chatgpt).sort(), ['clientId', 'email', 'hostId', 'sub']);
+// 4. Tokens an earlier build left in extension storage are revoked and removed; nothing else happens without them.
+local.chatgpt = { clientId: 'oaiapp_1', refreshToken: 'OLD', accessToken: 'x' };
+routes['https://auth.openai.com/api/accounts/oauth/revoke'] = () => new Response('', { status: 200 });
+await G.dropBrowserTokens();
+assert.deepEqual(seen.at(-1).form, { token: 'OLD', token_type_hint: 'refresh_token', client_id: 'oaiapp_1' });
+assert.equal(local.chatgpt, undefined);
+const n = seen.length;
+await G.dropBrowserTokens();
+assert.equal(seen.length, n);
 console.log('chatgpt: all passed');

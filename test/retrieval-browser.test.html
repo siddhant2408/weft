@@ -30,7 +30,7 @@ globalThis.chrome = {storage: {local: storage(state, 'local'), session: storage(
  sidePanel: {setPanelBehavior: async () => {}}, windows: {getCurrent: async () => ({id: 1})},
  runtime: {id: 'test', onMessage: {addListener: fn => listeners.push(fn)}, sendMessage: msg => new Promise(resolve => listeners.forEach(fn => fn(msg, {id: 'test', tab: {id: 1}}, resolve))),
  sendNativeMessage: (host, req, cb) => cb({ok: true}), openOptionsPage() {}},
- tabs: {onUpdated: {addListener() {}}, query: async () => [{id: 1}], onActivated: {addListener() {}}, sendMessage: async () => ({title: 'Current', text: 'Article'})}};
+ tabs: {query: async () => [{id: 1}], onActivated: {addListener() {}}, sendMessage: async () => ({title: 'Current', text: 'Article'})}};
 // Fake OpenRouter; every other fetch (sidepanel.html) goes through.
 const realFetch = fetch, sse = text => new Response(`data: ${JSON.stringify({choices: [{delta: {content: text}}]})}\n\ndata: [DONE]\n\n`);
 globalThis.fetch = (url, init) => {
