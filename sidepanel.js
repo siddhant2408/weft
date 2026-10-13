@@ -15,7 +15,6 @@ let showFull = false;               // full summary bullets expanded
 const expanded = new Set();        // thread ids whose long passage is shown in full
 let openOrphan = null;              // orphaned thread shown inline (it has no passage to jump to)
 let confirmOrphanDelete = false, confirmPageDelete = false;
-let noteMode = false;               // page composer saves a note instead of asking
 const pk = (id) => (id === 'summary' ? 'summary:' + urlKey : id === 'page' ? 'qa:' + urlKey : id);
 
 const $ = (id) => document.getElementById(id);
@@ -30,7 +29,6 @@ const md = (s) => DOMPurify.sanitize(marked.parse(s));  // model output is untru
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
 const ICON = {
-  note: '<path d="M10.8 2.7a1.4 1.4 0 0 1 2 2L6 11.5l-2.7.7.7-2.7Z"/>',
   up: '<path d="M8 12.5v-9m-4 4 4-4 4 4" stroke-width="1.7"/>',
   spark: '<path d="M8 2.5c.4 2.6 1.4 3.6 4 4-2.6.4-3.6 1.4-4 4-.4-2.6-1.4-3.6-4-4 2.6-.4 3.6-1.4 4-4ZM12.5 10.5c.2 1 .6 1.4 1.5 1.5-1 .2-1.3.6-1.5 1.5-.2-1-.6-1.3-1.5-1.5 1-.1 1.3-.5 1.5-1.5Z"/>',
   copy: '<rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 5.5V4A1.5 1.5 0 0 0 9 2.5H4A1.5 1.5 0 0 0 2.5 4v5A1.5 1.5 0 0 0 4 10.5h1.5"/>',
@@ -91,14 +89,13 @@ async function summarise() {
 async function sendPage(retry = false) {
   const ta = composer.ta;
   const text = retry ? '' : ta.value.trim();
-  const ask = retry || !noteMode;
   if (!text && !retry) return;
   ta.value = '';
   composer.autosize();
   delete errors.page;
-  if (ask) pending.add(pk('page'));
+  pending.add(pk('page'));
   render();
-  const res = await bg({ type: 'thread.send', urlKey, id: 'page', text, ask, tabId });
+  const res = await bg({ type: 'thread.send', urlKey, id: 'page', text, ask: true, tabId });
   if (res?.error) { errors.page = res.error; pending.delete(pk('page')); }
   render();
 }
@@ -247,7 +244,6 @@ function qaView() {
 // The page composer is built once so typing survives re-renders (streaming elsewhere re-renders often).
 const composer = (() => {
   const ta = el('textarea', { rows: 1, ariaLabel: 'Ask about this page' });
-  const noteBtn = iconBtn('note', 'Note only: save without asking', () => { noteMode = !noteMode; render(); ta.focus(); });
   const sendBtn = iconBtn('up', 'Send', () => sendPage());
   sendBtn.className = 'send';
   const autosize = () => {
@@ -259,18 +255,17 @@ const composer = (() => {
   ta.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); sendPage(); }
   });
-  const box = el('div', { className: 'composer' }, ta, noteBtn, sendBtn);
+  const box = el('div', { className: 'composer' }, ta, sendBtn);
   const err = el('div'), del = el('div');
   $('foot').append(err, box, del);  // mounted once: re-attaching the textarea on every render would steal focus
-  return { box, err, del, ta, noteBtn, sendBtn, autosize };
+  return { box, err, del, ta, sendBtn, autosize };
 })();
 
 function footer() {
   const busy = pending.has(pk('page'));
   composer.ta.disabled = composer.sendBtn.disabled = busy;
-  composer.ta.placeholder = noteMode ? 'Add a note about this page…' : `Ask ${replier} about the whole page…`;
-  composer.noteBtn.ariaPressed = String(noteMode);
-  composer.sendBtn.title = composer.sendBtn.ariaLabel = noteMode ? 'Save note' : `Ask ${replier}`;
+  composer.ta.placeholder = `Ask ${replier} about the whole page…`;
+  composer.sendBtn.title = composer.sendBtn.ariaLabel = `Ask ${replier}`;
   composer.autosize();
   const del = !page ? '' : confirmPageDelete
     ? el('div', { className: 'confirm' }, 'Delete every comment and the gist for this page?',

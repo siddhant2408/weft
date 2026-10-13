@@ -71,7 +71,6 @@
     check: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="m3.5 8.5 3 3 6-7" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
     trash: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.6 8.5h5.8l.6-8.5" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>',
     close: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4.5 4.5 7 7m0-7-7 7" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>',
-    note: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M10.8 2.7a1.4 1.4 0 0 1 2 2L6 11.5l-2.7.7.7-2.7Z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg>',
     keep: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4.5 2.5h7v11L8 10.8 4.5 13.5Z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg>',
     up: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 12.5v-9m-4 4 4-4 4 4" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>',
   };
@@ -258,7 +257,7 @@
   // open = { id } for a saved thread, or { id: null, draft: { selector, context, range } } before the first message.
   let open = null, card = null;
   let cardLift = 0;  // px the card sits above its natural spot, so it fits at the end of a short page
-  let ui = {};  // per-card transient state: noteMode, error, resolving, confirmDelete, links
+  let ui = {};  // per-card transient state: error, resolving, confirmDelete, links
 
   function openCard(target) {
     if (open && !open.draft && target.id === open.id) return;
@@ -266,18 +265,11 @@
     wrap.classList.toggle('dark', pageIsDark());
     open = target;
     cardLift = 0;
-    ui = { noteMode: false, error: null, resolving: null, confirmDelete: false, links: [], linksFor: null };
+    ui = { error: null, resolving: null, confirmDelete: false, links: [], linksFor: null };
     if (!target.draft) regDraft.clear();
 
     const ta = h_('textarea', '', { rows: 1, ariaLabel: 'Comment' });
-    const noteBtn = iconBtn('note', 'Note only: save without asking', () => {
-      ui.noteMode = !ui.noteMode;
-      noteBtn.setAttribute('aria-pressed', String(ui.noteMode));
-      renderCard();
-      ta.focus();
-    }, 'tool');
-    noteBtn.setAttribute('aria-pressed', 'false');
-    const keepBtn = iconBtn('keep', 'Keep highlight without commenting', () => keep(), 'tool');
+    const keepBtn = iconBtn('keep', 'Save without asking (anything typed is kept as a note)', () => keep(), 'tool');
     const sendBtn = iconBtn('up', 'Send', () => submit(), 'send');
     const autosize = () => {
       ta.style.height = 'auto';
@@ -295,7 +287,7 @@
     const scroll = h_('div', 'scroll');
     const msgs = h_('div', 'msgs');
     const state = h_('div', 'state');
-    const composer = h_('div', 'composer', {}, ta, keepBtn, noteBtn, sendBtn);
+    const composer = h_('div', 'composer', {}, ta, keepBtn, sendBtn);
     scroll.append(msgs);
     el.append(head, scroll, state, composer);
     cardHost.replaceChildren(el);
@@ -444,7 +436,7 @@
     card.composer.classList.toggle('hidden', resolved || !!ui.resolving);
     card.ta.disabled = busy;
     card.sendBtn.disabled = busy;
-    card.ta.placeholder = ui.noteMode ? 'Add a note…' : h?.messages.length ? `Reply, or ask ${replier} a follow-up…` : `Ask ${replier} about this…`;
+    card.ta.placeholder = h?.messages.length ? `Reply, or ask ${replier} a follow-up…` : `Ask ${replier} about this…`;
     card.autosize();
     // focus inside a closed shadow root reports the host as the active element
     if (document.activeElement === root && card.el.getBoundingClientRect().height !== lastCardHeight) requestAnimationFrame(revealCard);
@@ -518,23 +510,30 @@
     return true;
   }
 
-  // Kept highlights are tagged from their passage, so later questions on other pages can find them.
+  // Save a new selection without asking: a kept highlight, with whatever was typed as a note. It is tagged from the
+  // passage (and the note), so later questions on other pages can find it.
   async function keep() {
+    const text = card.ta.value.trim();
     ui.error = null;
-    if (await saveDraft(true)) { getSelection().removeAllRanges(); closeCard(); }
+    if (!(await saveDraft(!text))) return;
+    if (text) {
+      const r = await send({ type: 'thread.send', urlKey, id: open.id, text, ask: false });
+      if (r?.error) { ui.error = r.error; renderCard(); return; }
+    }
+    getSelection().removeAllRanges();
+    closeCard();
   }
 
   async function submit() {
     const text = card.ta.value.trim();
     if (!text || !open) return;
-    const ask = !ui.noteMode;
     ui.error = null;
     if (open.draft && !(await saveDraft())) return;
     const id = open.id;
     card.ta.value = '';
-    if (ask) pending.add(id);
+    pending.add(id);
     renderCard();
-    const r = await send({ type: 'thread.send', urlKey, id, text, ask });
+    const r = await send({ type: 'thread.send', urlKey, id, text, ask: true });
     if (r?.error) { pending.delete(id); if (open?.id === id) ui.error = r.error; }
     renderCard();
   }

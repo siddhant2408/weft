@@ -12,7 +12,7 @@ tag the thread ─▶ shortlist (≤10, shared tag) ─▶ Jev scores each ─�
 
 A thread is tagged from its first question, before its first reply (`tagThread` in `background.js`). The small model names 2–4 concepts the question is about, reusing existing tags where it can (`CONCEPTS_SYS`). Tags are what connect threads. Without them a thread has no related threads. Page Q&A threads are never tagged, so they get none.
 
-A highlight doesn't need a conversation. **Keep** (the bookmark on a new comment card) saves the highlight with no messages and tags it from the passage itself. A note on an untagged thread tags it from the passage and the note. Either way, the highlight can later be found and sent with replies on other pages, like any thread.
+A highlight doesn't need a conversation. **Save without asking** (the bookmark on a new comment card) saves the highlight without calling the answering model. With the box empty it is a kept highlight, tagged from the passage itself. With text typed, the text is saved as a note, and the highlight is tagged from the passage and the note, so the note steers which later questions it matches. Either way, the highlight can later be found and sent with replies on other pages, like any thread. (There is no separate note mode any more. Notes saved before this change still display and are used.)
 
 ### 1. Shortlist (code, no model)
 

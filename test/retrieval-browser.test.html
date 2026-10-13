@@ -2,7 +2,7 @@
 <meta charset="utf-8">
 <title>Retrieval UI regression</title>
 <style>body{font:16px system-ui;margin:40px}article{max-width:550px}</style>
-<article><h1>Database reading</h1><p>MVCC uses multiple versions of a row.</p></article>
+<article><h1>Database reading</h1><p>MVCC uses multiple versions of a row.</p><p>Vacuum reclaims dead rows later.</p></article>
 <pre id="result">RUNNING</pre>
 <script src="../vendor/marked.min.js"></script>
 <script src="../vendor/purify.min.js"></script>
@@ -63,11 +63,26 @@ try {
  check(root.querySelector('.body a').target === '_blank', 'Citation replaces reading page');
  await wait(() => !root.querySelector('textarea').disabled);
  await wait(() => [...root.querySelectorAll('.links .link')].some(a => a.href.startsWith(other + '#')));
+ // Save without asking: a new selection with typed text becomes a highlight carrying that text as a note, no AI call.
+ const text = document.querySelectorAll('article p')[1].firstChild, sel = getSelection(), range = document.createRange();
+ range.setStart(text, 0); range.setEnd(text, 6); sel.removeAllRanges(); sel.addRange(range);
+ document.dispatchEvent(new MouseEvent('mouseup', {bubbles: true}));
+ const draft = () => roots.flatMap(r => [...r.querySelectorAll('.card.draft')])[0];
+ await wait(() => draft());
+ const keepBtn = draft().querySelector('button[title^="Save without asking"]');
+ check(keepBtn && !keepBtn.hidden, 'No Save-without-asking button on a new selection');
+ check(!draft().querySelector('button[title^="Note only"]'), 'Note mode still present');
+ draft().querySelector('textarea').value = 'Check autovacuum settings';
+ const before = calls.length;
+ keepBtn.click();
+ await wait(() => state['page:' + key].highlights.some(x => x.exact === 'Vacuum' && x.messages[0]?.role === 'note'));
+ check(calls.length === before, 'Saving without asking called the model');
+ check(state['page:' + key].highlights.find(x => x.exact === 'Vacuum').messages[0].content === 'Check autovacuum settings', 'Typed text not kept as a note');
  const html = await (await fetch('../sidepanel.html')).text();
  const dom = new DOMParser().parseFromString(html, 'text/html'); dom.querySelectorAll('script').forEach(s => s.remove());
  document.body.replaceChildren(...dom.body.childNodes, result);
  await import('../sidepanel.js');
- await wait(() => document.body.textContent.includes('Current'));
+ await wait(() => document.body.textContent.includes('MVCC uses multiple versions'));
  const pending = chrome.runtime.sendMessage({type: 'thread.send', urlKey: key, id: 'page', text: 'Compare MVCC with Postgres', ask: true});
  await wait(() => calls.length === 2);
  check(jevCalls.length === 1, 'Page Q&A has no tags, so no related threads to score');
@@ -76,6 +91,6 @@ try {
  check([...document.querySelectorAll('.body a')].some(a => a.href.startsWith(other + '#')), 'Side panel citation not linked to its passage');
  check(!document.body.textContent.includes('Answering…'), 'Phase not cleared');
  check(errors.length === 0, errors.join('; '));
- result.textContent = 'PASS: real comment card and side panel show retrieval status, unlock composer, list the related threads the reply was given and link citations to original passages (fake Chrome APIs/OpenRouter/TypeSafe)';
+ result.textContent = 'PASS: real comment card and side panel show retrieval status, unlock composer, list the related threads the reply was given, save a selection with a note without asking, and link citations to original passages (fake Chrome APIs/OpenRouter/TypeSafe)';
 } catch (e) {result.textContent = 'FAIL: ' + e.stack + '\n' + errors.join('\n');}
 </script>
