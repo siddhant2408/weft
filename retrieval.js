@@ -3,12 +3,13 @@ export const INDEX_BYTES = 3000;
 export const CONTEXT_BYTES = 6000;
 const bytes = s => new TextEncoder().encode(s).length;
 const clip = (s, n) => { const chars = Array.from(String(s || '')); return chars.length > n ? chars.slice(0, n).join('') + '… [truncated]' : chars.join(''); };
-const block = (name, records) => `<${name}>\n${JSON.stringify(records)}\n</${name}>`;
+const json = record => JSON.stringify(record).replace(/</g, '\\u003c').replace(/>/g, '\\u003e');
+const block = (name, records) => `<${name}>\n${json(records)}\n</${name}>`;
 
 // Trim values, never field names or reference IDs. The cap includes JSON escaping and UTF-8, not just characters.
 function boundedRecord(record, limit) {
   const out = {...record};
-  while (bytes(JSON.stringify(out)) > limit) {
+  while (bytes(json(out)) > limit) {
     const key = Object.keys(out).filter(k => k !== 'ref').sort((a, b) => out[b].length - out[a].length)[0];
     const core = out[key].replace(/… \[truncated\]$/, '');
     out[key] = clip(core, Math.floor(Array.from(core).length / 2));
@@ -42,7 +43,7 @@ export function parseDecision(text, candidates) {
 }
 
 export function loadedContext(links) {
-  const records = links.map(l => {
+  const records = links.slice(0, 2).map(l => {
     const record = {ref: l.ref, title: clip(l.title, 100), 'Source passage': clip(l.exact, 1200), 'Surrounding context': clip(l.context, 600)};
     if (l.status === 'resolved' && l.takeaway) record['Reader-approved takeaway'] = clip(l.takeaway, 500);
     const q = l.messages?.filter(m => m.role === 'user').at(-1);
@@ -69,6 +70,11 @@ export async function retrieveReply({system, notes, prompt, candidates, ask, loa
   const final = await ask({system: system + '\n\nThis is the final reply: no further retrieval is available. Answer normally in Markdown, not protocol JSON. Cite only loaded ref IDs. Excerpts may be incomplete; state missing details instead of inventing a comparison.',
     notes: [notes, loadedContext(links)].filter(Boolean).join('\n\n'), prompt});
   if (cancelled()) return {ok: false, code: 'CANCELLED'};
+  if (final.ok) {
+    let control;
+    try { control = JSON.parse(final.text); } catch { /* normal prose */ }
+    if (!final.text.trim() || ['read', 'answer'].includes(control?.action)) return {ok: false, code: 'RETRIEVAL_INVALID'};
+  }
   if (final.ok && [...final.text.matchAll(/\[R(\d+)\]/g)].some(([, n]) => !links.some(l => l.ref === 'R' + n))) return {ok: false, code: 'RETRIEVAL_INVALID'};
   return {...final, links};
 }

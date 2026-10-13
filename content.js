@@ -15,6 +15,7 @@
   const ranges = new Map();          // highlight id → live Range
   const pending = new Set();         // ids waiting on the model (storage.session)
   const streams = {};                // id → partial reply while streaming
+  const phases = {};                 // id → retrieval status, never source contents
   const replierOf = (s) => (s?.provider === 'openai' && s.openai?.model ? s.openai.model.split('/').pop() : 'Claude');
   let replier = replierOf(s0);
 
@@ -297,9 +298,10 @@
     card.scroll.scrollTop = card.scroll.scrollHeight;  // open at the latest comment; scroll up for history
     requestAnimationFrame(revealCard);
     if (target.id) {
-      chrome.storage.session.get([`pending:${target.id}`, `stream:${target.id}`]).then((s) => {
+      chrome.storage.session.get([`pending:${target.id}`, `stream:${target.id}`, `phase:${target.id}`]).then((s) => {
         if (s[`pending:${target.id}`]) pending.add(target.id);
         if (s[`stream:${target.id}`]) streams[target.id] = s[`stream:${target.id}`];
+        if (s[`phase:${target.id}`]) phases[target.id] = s[`phase:${target.id}`];
         renderCard();
       }).catch(() => {});
       ta.focus({ preventScroll: true });
@@ -403,7 +405,7 @@
     card.msgs.replaceChildren(...kids([
       ...(h?.messages || []).map((m) => msgView(m)),
       busy && (live ? msgView({ role: 'assistant', content: live }, true)
-        : h_('div', 'msg', {}, h_('div', 'av ai', { textContent: '✦' }), h_('div', 'thinking', { textContent: `${replier} is thinking…` })))]));
+        : h_('div', 'msg', {}, h_('div', 'av ai', { textContent: '✦' }), h_('div', 'thinking', { textContent: phases[open.id] || `${replier} is thinking…` })))]));
     card.scroll.hidden = !card.msgs.childElementCount;
     if (atBottom || busy) card.scroll.scrollTop = card.scroll.scrollHeight;
 
@@ -598,6 +600,7 @@
         const [kind, id] = [k.slice(0, k.indexOf(':')), k.slice(k.indexOf(':') + 1)];
         if (kind === 'pending') newValue ? pending.add(id) : pending.delete(id);
         else if (kind === 'stream') { if (newValue) streams[id] = newValue; else delete streams[id]; }
+        else if (kind === 'phase') { if (newValue) phases[id] = newValue; else delete phases[id]; }
         else continue;
         if (id === open?.id) renderCard();
       }
