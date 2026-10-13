@@ -22,24 +22,27 @@ export function indexMatches(entry, query) {
   return norm(query).split(' ').filter(Boolean).every(w=>hay.includes(w));
 }
 
-// Concepts and lexical overlap generate candidates, not relevance decisions. The separate selector may reject all.
-export function findCandidates(index, query, max = 5) {
-  const text = [query.passage,query.context,query.question,...(query.recent || []).map(m=>m.content)].join(' ');
-  const hay = ' ' + norm(text) + ' ';
+// Threads on other pages sharing at least one of the query's tags, best lexical match first. A shortlist, not a
+// relevance decision: Jev scores each one (retrieval.js pickRelated) and may reject all.
+export function findCandidates(index, query, max = 10) {
   const mine = new Set((query.concepts || []).map(norm));
+  if (!mine.size) return [];
   const weighted = new Map();
   for (const [part,weight] of [[query.question,3],[(query.recent || []).map(m=>m.content).join(' '),2],[query.passage,1],[query.context,1]]) {
     for (const word of words(part)) weighted.set(word,Math.max(weighted.get(word) || 0,weight));
   }
-  const terms = index.map(entry=>words(entry.searchText));
-  const frequency = new Map();
-  for (const set of terms) for (const word of weighted.keys()) if (set.has(word)) frequency.set(word,(frequency.get(word) || 0)+1);
-  return index.flatMap((entry,i)=>{
+  // Tag filter first: only threads sharing a tag are split into words, and word rarity is measured among them.
+  const pool = index.flatMap(entry=>{
     if (entry.urlKey===query.urlKey) return [];
     const seen = new Set();
-    const shared = entry.concepts.filter(c=>{const k=norm(c); if (seen.has(k) || !(mine.has(k) || hay.includes(' '+k+' '))) return false; seen.add(k); return true;});
-    const matched = [...weighted.keys()].filter(w=>terms[i].has(w));
-    const score = shared.length*4 + matched.reduce((sum,w)=>sum + weighted.get(w)*Math.log(1 + index.length/(frequency.get(w) || 1)),0);
-    return score ? [{...entry,shared,matched,score}] : [];
+    const shared = entry.concepts.filter(c=>{const k=norm(c); if (seen.has(k) || !mine.has(k)) return false; seen.add(k); return true;});
+    return shared.length ? [{entry,shared,terms:words(entry.searchText)}] : [];
+  });
+  const frequency = new Map();
+  for (const {terms} of pool) for (const word of weighted.keys()) if (terms.has(word)) frequency.set(word,(frequency.get(word) || 0)+1);
+  return pool.map(({entry,shared,terms})=>{
+    const matched = [...weighted.keys()].filter(w=>terms.has(w));
+    const score = shared.length*4 + matched.reduce((sum,w)=>sum + weighted.get(w)*Math.log(1 + pool.length/(frequency.get(w) || 1)),0);
+    return {...entry,shared,matched,score};
   }).sort((a,b)=>b.score-a.score || (b.updatedAt || b.createdAt || '').localeCompare(a.updatedAt || a.createdAt || '') || threadKey(a.urlKey,a.id).localeCompare(threadKey(b.urlKey,b.id))).slice(0,max);
 }

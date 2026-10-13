@@ -12,7 +12,7 @@ const serve = (body, status = 200) => {
     return new Response(stream, { status });
   };
 };
-const { ask, replierName, getSettings } = await import('../providers.js');
+const { ask, judge, replierName, getSettings } = await import('../providers.js');
 const chunk = (t) => `data: ${JSON.stringify({ choices: [{ delta: { content: t } }] })}\n\n`;
 
 // [DONE], comment lines, partials, cache_control only for anthropic/ models
@@ -90,4 +90,19 @@ globalThis.fetch = async () => { throw new TypeError('Failed to fetch'); };
 assert.equal((await ask({ system: 'S', prompt: 'P' })).code, 'NETWORK');
 settings.openrouter.apiKey = '';
 assert.equal((await ask({ system: 'S', prompt: 'P' })).code, 'NO_KEY');
+
+// Jev: one POST to TypeSafe with the key from settings.typesafe; answers come back keyed by question id.
+const q = { helps: { type: 'noul', instructions: 'Helps?' } };
+settings = { typesafe: { apiKey: 'ts' } };
+serve(JSON.stringify({ model: 'jev-1.13.0', answers: { helps: { type: 'noul', noul: 0.73 } } }));
+assert.deepEqual(await judge({ a: 1 }, q), { ok: true, answers: { helps: { type: 'noul', noul: 0.73 } } });
+assert.equal(lastReq.url, 'https://api.typesafe.ai/v1/systemone');
+assert.equal(lastReq.init.headers.authorization, 'Bearer ts');
+assert.deepEqual(lastReq.body, { model: 'jev-latest', state: { a: 1 }, questions: q });
+serve(JSON.stringify({ detail: 'Invalid API key' }), 401);
+assert.equal((await judge({}, q)).code, 'BAD_KEY');
+globalThis.fetch = async () => { throw new TypeError('Failed to fetch'); };
+assert.equal((await judge({}, q)).code, 'NETWORK');
+settings = {};
+assert.equal((await judge({}, q)).code, 'NO_KEY');
 console.log('providers: all passed');

@@ -20,6 +20,6 @@ python3 native-host/test_mirror.py           # SQLite backup (host log: ~/Librar
 
 Browser smoke tests: `python3 -m http.server 8000 --bind 127.0.0.1`, then open `test/export-browser.test.html` or `test/retrieval-browser.test.html` from it.
 
-Opt-in evals that spend API credits (usage in each file's header): `test/live-retrieval.mjs`, `test/eval-tags.mjs`, `test/eval-first-answer.mjs`.
+Opt-in evals that spend API credits (usage in each file's header): `test/eval-related.mjs` (TypeSafe key; tunes the related-thread cut-off), `test/eval-tags.mjs`.
 
 Spec: Notion → Tech → "Margin — … Technical Specification".

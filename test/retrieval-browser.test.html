@@ -19,7 +19,8 @@ const listeners = [], changes = [], calls = [], roots = [];
 const attach = Element.prototype.attachShadow;
 Element.prototype.attachShadow = function(options) {const root = attach.call(this, options); roots.push(root); return root;};
 const key = location.href.split('#')[0], other = 'https://postgres.example/mvcc';
-const state = {settings: {openrouter: {apiKey: 'k', model: 'main', smallModel: 'small'}}, ['page:' + key]: {urlKey: key, title: 'Current', summary: {text: 'Database gist'},
+const state = {settings: {openrouter: {apiKey: 'k', model: 'main', smallModel: 'small'}, typesafe: {apiKey: 'ts'}}, ['page:' + key]: {urlKey: key, title: 'Current', summary: {text: 'Database gist'},
+ qa: {messages: [{role: 'user', content: 'Earlier page question'}, {role: 'assistant', content: 'Earlier page answer [R1].', refs: {1: {urlKey: other, exact: 'Snapshots retain old versions.', title: 'Postgres'}}}]},
  highlights: [{id: 'h', exact: 'MVCC uses multiple versions of a row.', prefix: '', suffix: '', start: 0, end: 35, context: '', concepts: ['MVCC'], status: 'open', messages: [{role: 'assistant', content: 'Earlier answer.'}]}]},
  ['page:' + other]: {urlKey: other, title: 'Postgres', highlights: [{id: 'old', exact: 'Snapshots retain old versions.', context: '', concepts: ['MVCC'], status: 'resolved', takeaway: 'Readers use snapshots', messages: [{role: 'assistant', content: 'Source answer.'}]}]}};
 const session = {'tab:1': {urlKey: key, orphans: []}};
@@ -31,9 +32,11 @@ globalThis.chrome = {storage: {local: storage(state, 'local'), session: storage(
  runtime: {id: 'test', onMessage: {addListener: fn => listeners.push(fn)}, sendMessage: msg => new Promise(resolve => listeners.forEach(fn => fn(msg, {id: 'test', tab: {id: 1}}, resolve))),
  sendNativeMessage: (host, req, cb) => cb({ok: true}), openOptionsPage() {}},
  tabs: {onUpdated: {addListener() {}}, query: async () => [{id: 1}], onActivated: {addListener() {}}, sendMessage: async () => ({title: 'Current', text: 'Article'})}};
-// Fake OpenRouter; every other fetch (sidepanel.html) goes through.
+// Fake OpenRouter and TypeSafe (each Jev call waits in jevCalls); every other fetch (sidepanel.html) goes through.
+const jevCalls = [];
 const realFetch = fetch, sse = text => new Response(`data: ${JSON.stringify({choices: [{delta: {content: text}}]})}\n\ndata: [DONE]\n\n`);
 globalThis.fetch = (url, init) => {
+ if (String(url).startsWith('https://api.typesafe.ai/')) return new Promise(resolve => jevCalls.push({finish: noul => resolve(Response.json({answers: {helps: {type: 'noul', noul}}}))}));
  if (!String(url).startsWith('https://openrouter.ai/')) return realFetch(url, init);
  const body = JSON.parse(init.body), req = {system: body.messages[0].content, model: body.model};
  if (req.system.startsWith('You tag')) return Promise.resolve(sse(''));
@@ -50,29 +53,29 @@ try {
  await wait(() => root?.querySelector('textarea'));
  root.querySelector('textarea').value = 'Compare MVCC with Postgres';
  root.querySelector('textarea').dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter', bubbles: true}));
- await wait(() => calls.length === 1);
- check(calls[0].req.system.startsWith('You select') && calls[0].req.model === 'small', 'First call is not the small selector');
- calls[0].finish('{"ids":["R1"]}');
- await wait(() => calls.length === 2 && root.textContent.includes('Answering…'));
+ await wait(() => jevCalls.length === 1 && root.textContent.includes('Finding relevant context…'));
  check(root.querySelector('textarea').disabled, 'Composer not locked during retrieval');
- calls[1].finish('Compared with Postgres [R1].');
+ jevCalls[0].finish(0.9);
+ await wait(() => calls.length === 1 && root.textContent.includes('Answering…'));
+ calls[0].finish('Compared with Postgres [R1].');
  await wait(() => root.querySelector('.body a'));
  check(root.querySelector('.body a').href.startsWith(other + '#'), 'Wrong source citation');
  check(root.querySelector('.body a').target === '_blank', 'Citation replaces reading page');
- check(!root.textContent.includes('"ids"'), 'Control output visible');
  await wait(() => !root.querySelector('textarea').disabled);
+ await wait(() => [...root.querySelectorAll('.links .link')].some(a => a.href.startsWith(other + '#')));
  const html = await (await fetch('../sidepanel.html')).text();
  const dom = new DOMParser().parseFromString(html, 'text/html'); dom.querySelectorAll('script').forEach(s => s.remove());
  document.body.replaceChildren(...dom.body.childNodes, result);
  await import('../sidepanel.js');
  await wait(() => document.body.textContent.includes('Current'));
  const pending = chrome.runtime.sendMessage({type: 'thread.send', urlKey: key, id: 'page', text: 'Compare MVCC with Postgres', ask: true});
- await wait(() => calls.length === 3); calls[2].finish('{"ids":["R1"]}');
- await wait(() => calls.length === 4 && document.body.textContent.includes('Answering…'));
- calls[3].finish('Page comparison [R1].'); await pending;
- await wait(() => [...document.querySelectorAll('.body a')].some(a => a.href.startsWith(other + '#')));
+ await wait(() => calls.length === 2);
+ check(jevCalls.length === 1, 'Page Q&A has no tags, so no related threads to score');
+ calls[1].finish('Page answer.'); await pending;
+ await wait(() => document.body.textContent.includes('Page answer.'));
+ check([...document.querySelectorAll('.body a')].some(a => a.href.startsWith(other + '#')), 'Side panel citation not linked to its passage');
  check(!document.body.textContent.includes('Answering…'), 'Phase not cleared');
  check(errors.length === 0, errors.join('; '));
- result.textContent = 'PASS: real comment card and side panel show retrieval status, hide control output, unlock composer and link citations to original passages (fake Chrome APIs/OpenRouter)';
+ result.textContent = 'PASS: real comment card and side panel show retrieval status, unlock composer, list the related threads the reply was given and link citations to original passages (fake Chrome APIs/OpenRouter/TypeSafe)';
 } catch (e) {result.textContent = 'FAIL: ' + e.stack + '\n' + errors.join('\n');}
 </script>

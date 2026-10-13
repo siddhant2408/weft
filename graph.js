@@ -26,19 +26,31 @@ export function vocabulary(pages, max = 100) {
   return [...counts.values()].sort((a, b) => b.n - a.n).slice(0, max).map((e) => e.label);
 }
 
-// Threads on other pages that share a concept with this one, most shared then newest first.
+// The comment card's "Related threads": the ones the latest reply was given (stored on it as identities, read fresh
+// here), so the card shows what the model saw. Threads answered before that was stored fall back to shared concepts,
+// most shared then newest first.
 // ponytail: scans every thread per call; fine to thousands, index by concept if it ever lags.
 export function connections(pages, urlKey, id, max = 5) {
   const h = pages.find((p) => p.urlKey === urlKey)?.highlights.find((x) => x.id === id);
-  if (!h?.concepts?.length) return [];
-  const mine = new Map(h.concepts.map((c) => [norm(c), c]));
+  if (!h) return [];
+  const mine = new Map((h.concepts || []).map((c) => [norm(c), c]));
+  const link = (p, x) => {
+    const theirs = new Set((x.concepts || []).map(norm));
+    const shared = [...mine].filter(([k]) => theirs.has(k)).map(([, c]) => c);
+    return { urlKey: p.urlKey, title: p.title, id: x.id, exact: x.exact, takeaway: x.takeaway, status: x.status, createdAt: x.createdAt, messages: x.messages, shared };
+  };
+  const given = h.messages?.findLast((m) => m.role === 'assistant' && m.related)?.related;
+  if (given) return given.flatMap((r) => {
+    const p = pages.find((p) => p.urlKey === r.urlKey), x = p?.highlights.find((x) => x.id === r.id);
+    return x ? [link(p, x)] : [];
+  });
+  if (!mine.size) return [];
   const out = [];
   for (const p of pages) {
     if (p.urlKey === urlKey) continue;
     for (const x of p.highlights) {
-      const theirs = new Set((x.concepts || []).map(norm));
-      const shared = [...mine].filter(([k]) => theirs.has(k)).map(([, c]) => c);
-      if (shared.length) out.push({ urlKey: p.urlKey, title: p.title, id: x.id, exact: x.exact, takeaway: x.takeaway, status: x.status, createdAt: x.createdAt, messages: x.messages, shared });
+      const l = link(p, x);
+      if (l.shared.length) out.push(l);
     }
   }
   return out.sort((a, b) => b.shared.length - a.shared.length || (b.createdAt || '').localeCompare(a.createdAt || '')).slice(0, max);
@@ -82,22 +94,4 @@ export function layout(n, edges, iterations = 300, mass = []) {
     t = Math.max(1, t * 0.985);
   }
   return p;
-}
-
-// Threads on other pages to give the model as context for this one. Once tagged, by shared concepts; before its
-// first reply (no concepts yet), by known concepts that appear in its passage, context and question.
-export function relatedFor(pages, urlKey, id, text, max = 5) {
-  const h = pages.find((p) => p.urlKey === urlKey)?.highlights.find((x) => x.id === id);
-  if (h?.concepts?.length) return connections(pages, urlKey, id, max);
-  const hay = ` ${norm(text)} `;
-  const out = [];
-  for (const p of pages) {
-    if (p.urlKey === urlKey) continue;
-    for (const x of p.highlights) {
-      const seen = new Set();
-      const shared = (x.concepts || []).filter((c) => { const k = norm(c); return k && hay.includes(` ${k} `) && !seen.has(k) && seen.add(k); });
-      if (shared.length) out.push({ urlKey: p.urlKey, title: p.title, id: x.id, exact: x.exact, takeaway: x.takeaway, status: x.status, createdAt: x.createdAt, messages: x.messages, shared });
-    }
-  }
-  return out.sort((a, b) => b.shared.length - a.shared.length || (b.createdAt || '').localeCompare(a.createdAt || '')).slice(0, max);
 }

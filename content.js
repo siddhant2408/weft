@@ -443,9 +443,9 @@
     if (document.activeElement === root && card.el.getBoundingClientRect().height !== lastCardHeight) requestAnimationFrame(revealCard);
   }
 
-  // Threads on other pages that share a concept with this one. Asked again whenever this thread's concepts change.
+  // The threads on other pages the latest reply was given. Asked again after each reply or change of concepts.
   function fetchLinks(h) {
-    const sig = h && h.messages.some((m) => m.role === 'assistant') ? h.id + '|' + (h.concepts || []).join('|') : null;
+    const sig = h && h.messages.some((m) => m.role === 'assistant') ? h.id + '|' + h.messages.length + '|' + (h.concepts || []).join('|') : null;
     if (!sig || sig === ui.linksFor) return;
     ui.linksFor = sig;
     send({ type: 'thread.connections', urlKey, id: h.id }).then((res) => {
@@ -462,7 +462,7 @@
         try { host = new URL(l.urlKey).hostname.replace(/^www\./, ''); } catch {}
         return h_('a', 'link', { href: MarginNotes.fragmentUrl(l.urlKey, l.exact), target: '_blank', rel: 'noopener', title: l.title || host },
           h_('span', 'q', { textContent: l.takeaway || l.exact }),
-          h_('span', 'src', { textContent: `${l.title || host} · via ${l.shared.join(', ')}` }));
+          h_('span', 'src', { textContent: (l.title || host) + (l.shared.length ? ` · via ${l.shared.join(', ')}` : '') }));
       }));
   }
 
