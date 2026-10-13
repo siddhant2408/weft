@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-let state = {}, session = {}, listener, calls = [], jevCalls = [], noul = 0.9, holdJev = false, tagReply = '';
+let state = {}, session = {}, listener, calls = [], tagPrompts = [], jevCalls = [], noul = 0.9, holdJev = false, tagReply = '';
 const clone = structuredClone;
 const storage = obj => ({get: async k => k == null ? clone(obj) : Object.fromEntries((Array.isArray(k) ? k : [k]).filter(x => x in obj).map(x => [x, clone(obj[x])])),
  set: async data => Object.assign(obj, clone(data)), remove: async ks => {for (const k of Array.isArray(ks) ? ks : [ks]) delete obj[k];}, setAccessLevel: async () => {}});
@@ -19,7 +19,7 @@ globalThis.fetch = async (url, init) => {
   return jevReply(body, typeof noul === 'function' ? noul(body.state.candidate) : noul);
  }
  const req = {system: body.messages[0].content, prompt: body.messages[1].content, model: body.model};
- if (req.system.startsWith('You tag')) return sse(tagReply);
+ if (req.system.startsWith('You tag')) return (tagPrompts.push(req.prompt), sse(tagReply));
  return new Promise(resolve => calls.push({req, finish: text => resolve(sse(text))}));
 };
 await import('../background.js');
@@ -27,7 +27,7 @@ const msg = data => new Promise(resolve => listener(data, {id: 'test', tab: {id:
 const wait = async fn => {for (let i = 0; i < 100; i++) {if (fn()) return; await new Promise(r => setTimeout(r, 1));} throw Error('timeout');};
 const key = 'https://current.test', other = 'https://old.test';
 function seed() {
- for (const obj of [state, session]) for (const k in obj) delete obj[k]; calls = []; jevCalls = []; noul = 0.9; holdJev = false; tagReply = '';
+ for (const obj of [state, session]) for (const k in obj) delete obj[k]; calls = []; tagPrompts = []; jevCalls = []; noul = 0.9; holdJev = false; tagReply = '';
  state.settings = {openrouter: {apiKey: 'k', model: 'main', smallModel: 'small'}, typesafe: {apiKey: 'ts-key'}};
  state.conceptsVersion = 2;
  state['page:' + key] = {urlKey: key, title: 'Current', summary: {text: 'gist'}, highlights: [{id: 'h', exact: 'MVCC', context: 'context', concepts: ['MVCC'], messages: [], status: 'open'}]};
@@ -98,6 +98,28 @@ await run('an untagged thread is tagged from its question before its first reply
  assert.deepEqual(state['page:' + key].highlights[0].concepts, ['MVCC']);
  assert.equal(jevCalls.length, 1); assert.match(calls[0].req.system, /SOURCE_SECRET/);
  calls[0].finish('Tagged first.'); assert.equal((await pending).ok, true);
+});
+await run('a highlight kept without comment is tagged from its passage, then found and labelled as kept', async () => {
+ delete state['page:' + other]; tagReply = 'MVCC';
+ const sel = {exact: 'KEPT_PASSAGE about vacuum', prefix: '', suffix: '', start: 0, end: 25};
+ const kept = await msg({type: 'highlight.create', url: other, title: 'Kept page', selector: sel, context: 'kept context', keep: true});
+ await wait(() => state['page:' + other]?.highlights[0].concepts);
+ assert.deepEqual(state['page:' + other].highlights[0].messages, []);
+ assert.match(tagPrompts[0], /KEPT_PASSAGE[\s\S]*kept this highlight without commenting/);
+ const pending = send(); await wait(() => calls.length === 1);
+ assert.match(jevCalls[0].body.state.candidate.note, /without discussing/);
+ assert.match(calls[0].req.system, /KEPT_PASSAGE[\s\S]*Kept highlight/);
+ assert.doesNotMatch(calls[0].req.system, /Recent conversation excerpts/);
+ calls[0].finish('Your kept passage [R1].'); await pending;
+ assert.deepEqual(lastReply().related, [{urlKey: kept.urlKey, id: kept.highlight.id}]);
+});
+await run('a note on an untagged thread tags it, and Jev sees the notes', async () => {
+ const o = state['page:' + other].highlights[0]; delete o.concepts; o.messages = []; tagReply = 'MVCC';
+ await msg({type: 'thread.send', urlKey: other, id: 'old', text: 'NOTE_TEXT: vacuum is lazy', ask: false});
+ await wait(() => state['page:' + other].highlights[0].concepts);
+ const pending = send(); await wait(() => calls.length === 1);
+ assert.match(jevCalls[0].body.state.candidate.reader_notes, /NOTE_TEXT/); assert.equal(jevCalls[0].body.state.candidate.note, undefined);
+ calls[0].finish('Ok.'); await pending;
 });
 await run('replies are saved without leading or trailing blank lines', async () => {
  delete state['page:' + other]; const pending = send(); await wait(() => calls.length === 1);

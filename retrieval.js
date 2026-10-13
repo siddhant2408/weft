@@ -30,7 +30,9 @@ export function judgeState(query, c) {
     current: {passage: clip(query.passage, 1500), context: clip(query.context, 500), question: clip(query.question, 1000),
       recent: (query.recent || []).slice(-3).map(m => `${m.role}: ${clip(m.content, 500)}`)},
     candidate: {page_title: clip(c.title, 100), passage: clip(c.exact, 600), reader_takeaway: clip(c.approvedTakeaway, 300),
-      reader_question: clip(c.question, 400), prior_AI_answer: clip(c.lastAnswer, 600)},
+      reader_question: clip(c.question, 400), prior_AI_answer: clip(c.lastAnswer, 600),
+      reader_notes: clip((c.messages || []).filter(m => m.role === 'note').map(m => m.content).join('\n'), 400),
+      ...(!c.messages?.length && {note: 'The reader highlighted this passage and kept it without discussing it.'})},
   };
 }
 
@@ -51,7 +53,8 @@ export function loadedContext(links) {
     if (l.status==='resolved' && l.takeaway) record['Reader-approved takeaway']=clip(l.takeaway,500);
     const q=l.messages?.filter(m=>m.role==='user').at(-1);
     if (l.status!=='resolved' && q) record['Open question']=clip(q.content,500);
-    record['Recent conversation excerpts']=(l.messages || []).slice(-4).map(m=>`${m.role==='assistant' ? 'Prior AI answer (not verified evidence)' : m.role==='note' ? 'Reader note' : 'Reader question'}: ${clip(m.content,800)}`).join('\n');
+    if (!l.messages?.length) record['Kept highlight']='The reader highlighted this passage without discussing it.';
+    else record['Recent conversation excerpts']=l.messages.slice(-4).map(m=>`${m.role==='assistant' ? 'Prior AI answer (not verified evidence)' : m.role==='note' ? 'Reader note' : 'Reader question'}: ${clip(m.content,800)}`).join('\n');
     return boundedRecord(record,2900);
   });
   return records.length ? block('related_threads',records) : '';
