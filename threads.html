@@ -5,40 +5,90 @@
 <title>Margin · All threads</title>
 <link rel="stylesheet" href="ui.css">
 <style>
-  .wrap { max-width: 760px; margin: 0 auto; padding: 48px 24px 80px; }
-  h1 { font-size: 30px; font-weight: 700; letter-spacing: -.01em; margin: 0 0 4px; }
-  .meta { color: var(--faint); font-size: 14px; }
-  .bar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 20px 0 8px; position: sticky; top: 0; z-index: 1;
-    background: var(--bg); padding: 10px 0; border-bottom: 1px solid var(--line); }
-  .bar input[type=search] { flex: 1; min-width: 200px; }
-  .bar .links { display: flex; gap: 2px; }
-  section.page { margin-top: 28px; }
-  .page-head { display: flex; gap: 8px; align-items: center; justify-content: space-between; margin-bottom: 4px; }
-  .page-head h2 { font-size: 16px; font-weight: 600; margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .wrap { max-width: 720px; margin: 0 auto; padding: 40px 24px 80px; }
+  h1 { font: 600 32px/1.2 var(--serif); letter-spacing: -.015em; margin: 0 0 2px; }
+  .meta { color: var(--faint); font-size: 13px; }
+
+  /* Reading progress across everything, same bar as the side panel */
+  .progress { margin-top: 14px; }
+  .progress .bar { display: flex; gap: 2px; height: 6px; border-radius: 3px; overflow: hidden; background: var(--hover); }
+  .progress .bar .d { background: var(--done); } .progress .bar .o { background: var(--open); }
+  .progress .legend { display: flex; gap: 12px; margin-top: 6px; font-size: 12px; color: var(--soft); font-variant-numeric: tabular-nums; }
+  .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 5px; vertical-align: 1px; }
+  .dot.d { background: var(--done); } .dot.o { background: var(--open); }
+
+  .bar-tools { position: sticky; top: 0; z-index: 1; background: var(--bg); margin: 20px -24px 0; padding: 10px 24px;
+    border-bottom: 1px solid var(--line); display: grid; gap: 8px; }
+  .bar-tools .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .bar-tools .spacer { flex: 1; }
+  .bar-tools .links { display: flex; gap: 2px; }
+
+  /* Each page is a neutral card holding its status-coloured thread cards; a thin bar shows how far it's resolved. */
+  section.page { margin-top: 24px; padding: 18px 18px 18px; border-radius: 14px; background: var(--bg-soft); box-shadow: inset 0 0 0 1px var(--line); }
+  #list > section.page:first-child { margin-top: 28px; }
+  .page-head { display: flex; gap: 8px; align-items: flex-start; margin: 0 0 16px 2px; }
+  .page-title { flex: 1; min-width: 0; }
+  .page-head h2 { font: 600 17px/1.35 var(--serif); letter-spacing: -.01em; margin: 0;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
   .page-head h2 a { text-decoration: none; } .page-head h2 a:hover { text-decoration: underline; }
-  .page-head .host { color: var(--faint); font-size: 13px; font-weight: 400; margin-left: 6px; }
-  .item { display: block; padding: 10px 12px; margin: 0 -12px; border-radius: 8px; }
-  .item:hover { background: var(--bg-soft); }
-  .item .quote { font-size: 14px; color: var(--soft); margin: 0; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
-  .item .takeaway { margin-top: 8px; font-size: 14px; }
-  .item .open-q { margin-top: 6px; }
-  .item .foot { display: flex; gap: 12px; margin-top: 6px; font-size: 12px; color: var(--faint); align-items: center; }
-  .item .foot a { color: var(--soft); }
-  .item.resolved .quote { opacity: .75; }
-  @media (max-width: 520px) { .wrap { padding: 28px 16px 64px; } h1 { font-size: 24px; } }
+  .page-head .host { display: flex; align-items: center; gap: 8px; color: var(--faint); font-size: 12px; margin-top: 3px; }
+  .mini { display: flex; gap: 2px; width: 56px; height: 4px; border-radius: 2px; overflow: hidden; background: var(--hover); flex: none; }
+  .mini .d { background: var(--done); } .mini .o { background: var(--open); }
+  .page-head .icon-btn { margin: -2px -4px 0 0; }
+  .icon-btn.copied { color: var(--done); }
+
+  /* Thread cards: the side panel's, showing the passage */
+  .cards { display: grid; gap: 10px; }
+  .card { --c: var(--open); --tint: var(--open-tint); border-radius: 10px; background: var(--tint); padding: 13px 16px 12px 19px;
+    box-shadow: inset 3px 0 0 var(--c), inset 0 0 0 1px color-mix(in srgb, var(--c) 22%, transparent);
+    transition: transform .15s ease, box-shadow .15s ease; }
+  .card.done { --c: var(--done); --tint: var(--done-tint); }
+  .card:hover { transform: translateY(-1px); box-shadow: inset 3px 0 0 var(--c), inset 0 0 0 1px color-mix(in srgb, var(--c) 40%, transparent), 0 4px 12px rgba(15,15,15,.08); }
+  .card .passage { display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden;
+    font-size: 14px; line-height: 1.55; text-decoration: none; }
+  .card .passage:hover { text-decoration: underline; text-decoration-color: var(--faint); }
+  .card .meta-line { font-size: 11.5px; color: var(--faint); margin-top: 6px; }
+
+  /* Graph: threads are dots in their status colour, linked when they share an idea */
+  .graph-card { margin-top: 20px; border-radius: 12px; background: var(--bg-soft); box-shadow: inset 0 0 0 1px var(--line); overflow: hidden; }
+  .graph-legend { display: flex; gap: 14px; flex-wrap: wrap; padding: 10px 14px; font-size: 12px; color: var(--soft); border-bottom: 1px solid var(--line); }
+  .graph { display: block; width: 100%; cursor: grab; touch-action: none; user-select: none; }
+  .graph.panning { cursor: grabbing; }
+  .graph line { stroke: color-mix(in srgb, var(--soft) 35%, transparent); vector-effect: non-scaling-stroke; transition: opacity .15s; }
+  .graph circle { transition: opacity .15s; }
+  .graph circle.open { fill: var(--open); } .graph circle.done { fill: var(--done); }
+  .graph .thread circle { stroke: var(--bg-soft); stroke-width: 1.5; cursor: pointer; }
+  .graph .thread:hover circle, .graph .thread:focus-visible circle { stroke: var(--ink); }
+  .graph .label { cursor: pointer; fill: var(--faint); font: 500 11px var(--font); text-anchor: middle; transition: opacity .2s, fill .15s; }
+  .graph .label.lit { fill: var(--ink); }
+  .graph.focusing line:not(.lit), .graph.focusing .thread:not(.lit), .graph.focusing .label:not(.lit) { opacity: .12; }
+  .graph .why { fill: var(--soft); font: 500 10.5px var(--font); text-anchor: middle; paint-order: stroke; stroke: var(--bg-soft); stroke-width: 3px; opacity: 0; pointer-events: none; transition: opacity .15s; }
+  .graph .why.lit { opacity: 1; }
+  .graph.far .label:not(.lit) { opacity: 0; pointer-events: none; }
+  .graph line.lit { stroke: var(--ink); }
+  .graph-note { color: var(--faint); font-size: 12px; margin: 0; padding: 10px 14px; border-top: 1px solid var(--line); }
+  @media (prefers-reduced-motion: reduce) { .card, .graph line, .graph circle, .graph .label { transition: none; } .card:hover { transform: none; } }
+  @media (max-width: 520px) { .wrap { padding: 24px 16px 64px; } section.page { padding: 14px 12px; } .bar-tools { margin: 16px -16px 0; padding: 10px 16px; } h1 { font-size: 26px; } }
 </style>
 <div class="wrap">
   <h1>All threads</h1>
   <div class="meta" id="meta"></div>
-  <div class="bar">
-    <input type="search" id="q" placeholder="Search passages, takeaways, messages…" aria-label="Search threads">
-    <div class="seg" role="group" aria-label="Filter">
-      <button data-f="all" aria-pressed="true">All</button><button data-f="open" aria-pressed="false">Open</button><button data-f="resolved" aria-pressed="false">Resolved</button>
+  <div class="progress" id="progress" hidden></div>
+  <div class="bar-tools">
+    <input type="search" id="q" placeholder="Search passages, takeaways and comments" aria-label="Search threads">
+    <div class="row">
+      <div class="seg" role="group" aria-label="Filter">
+        <button data-f="all" aria-pressed="true">All</button><button data-f="open" aria-pressed="false">Open</button><button data-f="resolved" aria-pressed="false">Resolved</button>
+      </div>
+      <div class="seg view" role="group" aria-label="View">
+        <button data-v="list" aria-pressed="true">List</button><button data-v="graph" aria-pressed="false">Graph</button>
+      </div>
+      <span class="spacer"></span>
+      <div class="links"><button class="btn plain" id="export">Export JSON</button><a class="btn plain" href="options.html">Settings</a></div>
     </div>
-    <div class="links"><button class="btn plain" id="export">Export JSON</button><a class="btn plain" href="options.html">Settings</a></div>
   </div>
-  <main id="list"></main>
+  <main id="list" aria-live="polite"></main>
 </div>
 <script src="notes.js"></script>
-<script src="threads.js"></script>
+<script type="module" src="threads.js"></script>
 </html>

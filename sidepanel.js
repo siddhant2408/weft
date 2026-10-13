@@ -121,7 +121,8 @@ function messageView(m, partial = false) {
   const ai = m.role === 'assistant';
   const body = el('div', { className: 'body' });
   if (ai) {
-    body.innerHTML = md(m.content);
+    body.innerHTML = md(MarginNotes.linkRefs(m.content, m.refs));
+    for (const a of body.querySelectorAll('a')) Object.assign(a, { target: '_blank', rel: 'noopener' });
     if (partial) (body.lastElementChild || body).append(el('span', { className: 'caret' }));
   } else body.textContent = m.content;
   return el('div', { className: 'msg' + (m.role === 'note' ? ' note' : '') },
