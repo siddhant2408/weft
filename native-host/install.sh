@@ -10,7 +10,7 @@ mkdir -p "$DEST"
 cat > "$DEST/$HOST_NAME.json" <<EOF
 {
   "name": "$HOST_NAME",
-  "description": "Margin: runs claude -p with tools disabled",
+  "description": "Margin: mirrors notes to a local SQLite file",
   "path": "$DIR/host.py",
   "type": "stdio",
   "allowed_origins": ["chrome-extension://$EXT_ID/"]

@@ -1,0 +1,78 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Retrieval UI regression</title>
+<style>body{font:16px system-ui;margin:40px}article{max-width:550px}</style>
+<article><h1>Database reading</h1><p>MVCC uses multiple versions of a row.</p></article>
+<pre id="result">RUNNING</pre>
+<script src="../vendor/marked.min.js"></script>
+<script src="../vendor/purify.min.js"></script>
+<script src="../vendor/Readability.js"></script>
+<script src="../anchor.js"></script>
+<script src="../notes.js"></script>
+<script src="../settings.js"></script>
+<script type="module">
+const result = document.getElementById('result');
+const errors = [];
+addEventListener('error', e => errors.push(e.message));
+addEventListener('unhandledrejection', e => errors.push(String(e.reason)));
+const listeners = [], changes = [], calls = [], roots = [];
+const attach = Element.prototype.attachShadow;
+Element.prototype.attachShadow = function(options) {const root = attach.call(this, options); roots.push(root); return root;};
+const key = location.href.split('#')[0], other = 'https://postgres.example/mvcc';
+const state = {settings: {openrouter: {apiKey: 'k', model: 'main', smallModel: 'small'}}, ['page:' + key]: {urlKey: key, title: 'Current', summary: {text: 'Database gist'},
+ highlights: [{id: 'h', exact: 'MVCC uses multiple versions of a row.', prefix: '', suffix: '', start: 0, end: 35, context: '', concepts: ['MVCC'], status: 'open', messages: [{role: 'assistant', content: 'Earlier answer.'}]}]},
+ ['page:' + other]: {urlKey: other, title: 'Postgres', highlights: [{id: 'old', exact: 'Snapshots retain old versions.', context: '', concepts: ['MVCC'], status: 'resolved', takeaway: 'Readers use snapshots', messages: [{role: 'assistant', content: 'Source answer.'}]}]}};
+const session = {'tab:1': {urlKey: key, orphans: []}};
+const storage = (obj, area) => ({get: async k => k == null ? structuredClone(obj) : Object.fromEntries((Array.isArray(k) ? k : [k]).filter(x => x in obj).map(x => [x, structuredClone(obj[x])])),
+ set: async data => {const delta = {}; for (const k in data) {delta[k] = {oldValue: obj[k], newValue: structuredClone(data[k])}; obj[k] = structuredClone(data[k]);} changes.forEach(fn => fn(delta, area));},
+ remove: async keys => {const delta = {}; for (const k of Array.isArray(keys) ? keys : [keys]) {delta[k] = {oldValue: obj[k]}; delete obj[k];} changes.forEach(fn => fn(delta, area));}, setAccessLevel: async () => {}});
+globalThis.chrome = {storage: {local: storage(state, 'local'), session: storage(session, 'session'), onChanged: {addListener: fn => changes.push(fn)}},
+ sidePanel: {setPanelBehavior: async () => {}}, windows: {getCurrent: async () => ({id: 1})},
+ runtime: {id: 'test', onMessage: {addListener: fn => listeners.push(fn)}, sendMessage: msg => new Promise(resolve => listeners.forEach(fn => fn(msg, {id: 'test', tab: {id: 1}}, resolve))),
+ sendNativeMessage: (host, req, cb) => cb({ok: true}), openOptionsPage() {}},
+ tabs: {onUpdated: {addListener() {}}, query: async () => [{id: 1}], onActivated: {addListener() {}}, sendMessage: async () => ({title: 'Current', text: 'Article'})}};
+// Fake OpenRouter; every other fetch (sidepanel.html) goes through.
+const realFetch = fetch, sse = text => new Response(`data: ${JSON.stringify({choices: [{delta: {content: text}}]})}\n\ndata: [DONE]\n\n`);
+globalThis.fetch = (url, init) => {
+ if (!String(url).startsWith('https://openrouter.ai/')) return realFetch(url, init);
+ const body = JSON.parse(init.body), req = {system: body.messages[0].content, model: body.model};
+ if (req.system.startsWith('You tag')) return Promise.resolve(sse(''));
+ return new Promise(resolve => calls.push({req, finish: text => resolve(sse(text))}));
+};
+const wait = async fn => {for (let i = 0; i < 200; i++) {if (fn()) return; await new Promise(r => setTimeout(r, 10));} throw Error('Timed out');};
+const check = (condition, why) => {if (!condition) throw Error(why);};
+try {
+ await import('../background.js');
+ await import('../content.js');
+ await wait(() => roots.some(r => r.querySelector('.icon')));
+ listeners.forEach(fn => fn({type: 'highlight.scroll', id: 'h'}, {id: 'test'}, () => {}));
+ const root = roots.find(r => r.querySelector('.card'));
+ await wait(() => root?.querySelector('textarea'));
+ root.querySelector('textarea').value = 'Compare MVCC with Postgres';
+ root.querySelector('textarea').dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter', bubbles: true}));
+ await wait(() => calls.length === 1);
+ check(calls[0].req.system.startsWith('You select') && calls[0].req.model === 'small', 'First call is not the small selector');
+ calls[0].finish('{"ids":["R1"]}');
+ await wait(() => calls.length === 2 && root.textContent.includes('Answering…'));
+ check(root.querySelector('textarea').disabled, 'Composer not locked during retrieval');
+ calls[1].finish('Compared with Postgres [R1].');
+ await wait(() => root.querySelector('.body a'));
+ check(root.querySelector('.body a').href.startsWith(other + '#'), 'Wrong source citation');
+ check(root.querySelector('.body a').target === '_blank', 'Citation replaces reading page');
+ check(!root.textContent.includes('"ids"'), 'Control output visible');
+ await wait(() => !root.querySelector('textarea').disabled);
+ const html = await (await fetch('../sidepanel.html')).text();
+ const dom = new DOMParser().parseFromString(html, 'text/html'); dom.querySelectorAll('script').forEach(s => s.remove());
+ document.body.replaceChildren(...dom.body.childNodes, result);
+ await import('../sidepanel.js');
+ await wait(() => document.body.textContent.includes('Current'));
+ const pending = chrome.runtime.sendMessage({type: 'thread.send', urlKey: key, id: 'page', text: 'Compare MVCC with Postgres', ask: true});
+ await wait(() => calls.length === 3); calls[2].finish('{"ids":["R1"]}');
+ await wait(() => calls.length === 4 && document.body.textContent.includes('Answering…'));
+ calls[3].finish('Page comparison [R1].'); await pending;
+ await wait(() => [...document.querySelectorAll('.body a')].some(a => a.href.startsWith(other + '#')));
+ check(!document.body.textContent.includes('Answering…'), 'Phase not cleared');
+ check(errors.length === 0, errors.join('; '));
+ result.textContent = 'PASS: real comment card and side panel show retrieval status, hide control output, unlock composer and link citations to original passages (fake Chrome APIs/OpenRouter)';
+} catch (e) {result.textContent = 'FAIL: ' + e.stack + '\n' + errors.join('\n');}
+</script>

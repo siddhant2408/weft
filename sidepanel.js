@@ -3,9 +3,10 @@
 // about the page as a whole. It also shows what the model is told about your reading.
 // Storage is the source of truth; this panel re-renders from it and sends writes through the background worker.
 let tabId = null, urlKey = null, page = null, orphans = [];
-let replier = 'Claude';             // who answers, from settings
+let replier = 'AI';                   // who answers, from settings
 const pending = new Set();          // pending keys waiting on the model (storage.session)
-const streams = {};                 // pending key → partial reply while an API provider streams
+const streams = {};                 // pending key → partial reply while the model streams
+const phases = {};                  // pending key → retrieval status
 // A worker killed mid-request leaves its flag behind; past the 120 s timeout it's stale.
 const live = (startedAt) => Date.now() - startedAt < 150000;
 const errors = {};                  // 'summary' | 'page' → {code, hint}
@@ -53,6 +54,7 @@ async function setTab(id) {
   pending.clear();
   for (const k in s) if (k.startsWith('pending:') && live(s[k])) pending.add(k.slice(8));
   for (const k in s) if (k.startsWith('stream:')) streams[k.slice(7)] = s[k];
+  for (const k in s) if (k.startsWith('phase:')) phases[k.slice(6)] = s[k];
   openOrphan = null;
   showFull = false;
   await loadPage();
@@ -134,11 +136,11 @@ function messageView(m, partial = false) {
     body);
 }
 
-// While waiting: the streamed partial reply if the provider streams, else a placeholder.
+// While waiting: the streamed partial reply, else a placeholder.
 function thinking(key, label) {
   const partial = streams[key];
   return partial ? messageView({ role: 'assistant', content: partial }, true)
-    : el('div', { className: 'msg' }, el('div', { className: 'av ai', textContent: '✦' }), el('div', { className: 'thinking', textContent: label }));
+    : el('div', { className: 'msg' }, el('div', { className: 'av ai', textContent: '✦' }), el('div', { className: 'thinking', textContent: phases[key] || label }));
 }
 
 const label = (text, n, ...extra) => el('h2', { className: 'label' }, text, n != null && el('span', { className: 'n', textContent: n }), el('span', { className: 'spacer' }), ...extra);
@@ -322,8 +324,8 @@ function render() {
 
 // ---------- wiring ----------
 function setReplier(settings) {
-  const o = settings?.provider === 'openai' && settings.openai?.model;
-  replier = o ? o.split('/').pop() : 'Claude';
+  const m = settings?.openrouter?.model;
+  replier = settings?.provider === 'chatgpt' ? settings.chatgpt?.model || 'ChatGPT' : !m || m === 'openrouter/free' ? 'AI' : m.split('/').pop();
 }
 chrome.storage.local.get('settings').then(({ settings }) => { setReplier(settings); render(); });
 
@@ -338,6 +340,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
   for (const [k, { newValue }] of Object.entries(changes)) {
     if (k === 'tab:' + tabId) { ({ urlKey = null, orphans = [] } = newValue || {}); loadPage(); }
     else if (k.startsWith('stream:')) { if (newValue) streams[k.slice(7)] = newValue; else delete streams[k.slice(7)]; dirty = true; }
+    else if (k.startsWith('phase:')) { if (newValue) phases[k.slice(6)] = newValue; else delete phases[k.slice(6)]; dirty = true; }
     else if (k.startsWith('pending:')) { newValue && live(newValue) ? pending.add(k.slice(8)) : pending.delete(k.slice(8)); dirty = true; }
   }
   if (dirty) render();

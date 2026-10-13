@@ -1,38 +1,19 @@
-// Model providers. Every provider takes {system, notes?, prompt} and returns {ok, text} | {ok: false, code, detail}.
+// Model providers, both streamed. Each returns {ok, text} | {ok: false, code, detail}.
+//   openrouter → OpenRouter's Chat Completions API with the user's key
+//   chatgpt    → the Responses API on the user's ChatGPT plan (Sign in with ChatGPT, see chatgpt.js)
 // system (instructions + article) is the stable, cached prefix; notes (the reader's notes) follow it uncached,
 // because they change as the user reads; prompt is the per-call part.
 // Raw fetch rather than SDKs: the extension has no build step (spec D1).
-//   cli       → Claude Code on this Mac via the native host (subscription, no streaming)
-//   anthropic → Anthropic Messages API with the user's key (streaming, cache_control on the system prompt)
-//   openai    → any OpenAI-compatible Chat Completions API: OpenRouter, OpenAI, Ollama, LM Studio… (streaming)
 
-export const HOST = 'com.margin.host';
+import { RESOURCE, accessToken } from './chatgpt.js';
+
+export const HOST = 'com.margin.host';  // native host: SQLite mirror only
 const TIMEOUT_MS = 120000;
-
-export const PRESETS = {
-  openrouter: { baseUrl: 'https://openrouter.ai/api/v1', label: 'OpenRouter' },
-  openai: { baseUrl: 'https://api.openai.com/v1', label: 'OpenAI' },
-};
-export const DEFAULT_ANTHROPIC_MODEL = 'claude-opus-5-5';
-export const DEFAULT_EFFORT = 'medium';
-// Small jobs (one-line takeaways) never include the article, so a fast cheap model costs no cache reuse.
-const SMALL = { cli: 'haiku', anthropic: 'claude-haiku-5-5' };
-// Effort (output_config.effort) exists on the 5.x families; older models reject it.
-const EFFORT_MODELS = /^claude-(opus|sonnet|haiku|fable|mythos)-5/;
-// Server-side refusal fallback: only these models accept fallbacks: "default".
-const FALLBACK_MODELS = /^claude-(fable-5-1|opus-5-5|opus-5|sonnet-5-5)$/;
-
-const joined = (system, notes) => (notes ? `${system}\n\n${notes}` : system);
-
-function cli({ system, notes, prompt }, cfg) {
-  return new Promise((resolve) => {
-    chrome.runtime.sendNativeMessage(HOST, { system: joined(system, notes), prompt, model: cfg.model, effort: cfg.effort }, (res) => {
-      const err = chrome.runtime.lastError;
-      if (err) resolve({ ok: false, code: /not found|forbidden/i.test(err.message) ? 'HOST_MISSING' : 'HOST_ERROR', detail: err.message });
-      else resolve(res);
-    });
-  });
-}
+const BASE = 'https://openrouter.ai/api/v1';
+// openrouter/free routes each call to one of OpenRouter's free models ($0, rate-limited, model varies per call).
+export const DEFAULT_MODEL = 'openrouter/free';
+// Small jobs (concept tags, takeaways, context selection) never include the article, so a fast cheap model loses no cache.
+export const DEFAULT_SMALL_MODEL = 'openrouter/free';
 
 // Server-sent events → {event, data} objects.
 async function* sse(body) {
@@ -57,24 +38,24 @@ async function* sse(body) {
   }
 }
 
-function httpError(status, detail) {
-  const code = status === 401 || status === 403 ? 'BAD_KEY' : status === 429 ? 'RATE_LIMIT'
-    : status === 404 ? 'BAD_MODEL' : status >= 500 ? 'API_DOWN' : 'API_ERROR';
+function httpError(status, body) {
+  const detail = errorText(body);
+  const code = status === 401 || status === 403 ? 'BAD_KEY' : status === 402 ? 'NO_CREDITS' : status === 429 ? 'RATE_LIMIT'
+    : status === 404 ? (/data policy/i.test(detail) ? 'DATA_POLICY' : 'BAD_MODEL') : status >= 500 ? 'API_DOWN' : 'API_ERROR';
   return { ok: false, code, detail: `HTTP ${status}: ${detail}`.slice(0, 500) };
 }
 
-async function readError(res) {
-  const t = await res.text().catch(() => '');
-  try { const j = JSON.parse(t); return j.error?.message || j.message || t; } catch { return t; }
+function errorText(t) {
+  try { const j = JSON.parse(t); return j.error?.message || j.message || j.detail || t; } catch { return t; }
 }
 
 // Shared fetch + stream loop. `onDelta(json)` returns text to append, or throws {code, detail} to fail.
-async function streamRequest(url, init, onData, onText) {
+async function streamRequest(url, init, onData, onText, toError = httpError) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
   try {
     const res = await fetch(url, { ...init, signal: ctrl.signal });
-    if (!res.ok) return httpError(res.status, await readError(res));
+    if (!res.ok) return toError(res.status, await res.text().catch(() => ''));
     let text = '', complete = false;
     for await (const ev of sse(res.body)) {
       const delta = onData(ev);
@@ -93,87 +74,86 @@ async function streamRequest(url, init, onData, onText) {
   }
 }
 
-function anthropic({ system, notes, prompt }, cfg, onText) {
-  const model = cfg.model || DEFAULT_ANTHROPIC_MODEL;
-  const headers = {
-    'content-type': 'application/json',
-    'x-api-key': cfg.apiKey,
-    'anthropic-version': '2023-06-01',
-    // Extension pages send an Origin header; without this the API rejects it as a browser request.
-    'anthropic-dangerous-direct-browser-access': 'true',
-  };
-  const body = {
-    model,
-    max_tokens: 16000,
-    stream: true,
-    // 1-hour cache: reading is slow, and the default 5 minutes would re-send the article after every pause.
-    system: [{ type: 'text', text: system, cache_control: { type: 'ephemeral', ttl: '1h' } }, ...(notes ? [{ type: 'text', text: notes }] : [])],
-    messages: [{ role: 'user', content: prompt }],
-  };
-  if (cfg.effort && EFFORT_MODELS.test(model)) body.output_config = { effort: cfg.effort };
-  if (FALLBACK_MODELS.test(model)) {
-    headers['anthropic-beta'] = 'server-side-fallback-2026-07-01';
-    body.fallbacks = 'default';
-  }
-  return streamRequest('https://api.anthropic.com/v1/messages', { method: 'POST', headers, body: JSON.stringify(body) }, ({ data }) => {
-    const j = JSON.parse(data);
-    if (j.type === 'error') throw { code: j.error?.type === 'overloaded_error' ? 'API_DOWN' : 'API_ERROR', detail: j.error?.message || 'stream error' };
-    if (j.type === 'content_block_delta' && j.delta?.type === 'text_delta') return j.delta.text;
-    if (j.type === 'message_delta' && j.delta?.stop_reason === 'refusal') throw { code: 'REFUSED', detail: j.delta.stop_details?.explanation || '' };
-    if (j.type === 'message_delta' && ['max_tokens', 'model_context_window_exceeded'].includes(j.delta?.stop_reason)) throw { code: 'INCOMPLETE', detail: 'The reply reached the output token limit.' };
-    if (j.type === 'message_stop') return null;
-    return '';
-  }, onText);
-}
-
-function openai({ system, notes, prompt }, cfg, onText) {
-  const base = (cfg.baseUrl || PRESETS.openrouter.baseUrl).replace(/\/+$/, '');
-  // Anthropic models via OpenRouter cache only with an explicit breakpoint; other providers cache automatically.
-  const systemContent = /openrouter\.ai/.test(base) && /^anthropic\//.test(cfg.model)
+// req.schema = {name, schema}: ask for JSON matching it. Models that don't support structured output may still ignore
+// it (the free router picks models at random), so callers keep validating the reply.
+function openrouter({ system, notes, prompt, schema }, { apiKey, model }, onText) {
+  // Anthropic models on OpenRouter cache only with an explicit breakpoint; other models cache automatically.
+  const content = /^anthropic\//.test(model)
     ? [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }, ...(notes ? [{ type: 'text', text: notes }] : [])]
-    : joined(system, notes);
-  const headers = { 'content-type': 'application/json' };
-  if (cfg.apiKey) headers.authorization = `Bearer ${cfg.apiKey}`;
-  if (/openrouter\.ai/.test(base)) headers['X-Title'] = 'Margin';
-  const body = {
-    model: cfg.model,
-    stream: true,
-    messages: [{ role: 'system', content: systemContent }, { role: 'user', content: prompt }],
-  };
-  return streamRequest(`${base}/chat/completions`, { method: 'POST', headers, body: JSON.stringify(body) }, ({ data }) => {
+    : (notes ? `${system}\n\n${notes}` : system);
+  const headers = { 'content-type': 'application/json', authorization: `Bearer ${apiKey}`, 'X-Title': 'Margin' };
+  const body = { model, stream: true, messages: [{ role: 'system', content }, { role: 'user', content: prompt }] };
+  if (schema) body.response_format = { type: 'json_schema', json_schema: { name: schema.name, strict: true, schema: schema.schema } };
+  return streamRequest(`${BASE}/chat/completions`, { method: 'POST', headers, body: JSON.stringify(body) }, ({ data }) => {
     if (data === '[DONE]') return null;
     const j = JSON.parse(data);
     if (j.error) throw { code: 'API_ERROR', detail: j.error.message || JSON.stringify(j.error) };
     if (j.choices?.some((c) => c.finish_reason === 'length')) throw { code: 'INCOMPLETE', detail: 'The reply reached the output token limit.' };
     const text = j.choices?.[0]?.delta?.content || '';
-    // Some compatible servers close after finish_reason "stop" without sending [DONE].
     return j.choices?.[0]?.finish_reason === 'stop' ? { text, done: true } : text;
   }, onText);
 }
 
+// ChatGPT plan errors carry a code (developers.openai.com/siwc/token-sharing-open-source/errors-and-recovery).
+const PLAN_ERRORS = {
+  subscription_sharing_usage_limit_exceeded: 'PLAN_LIMIT', subscription_sharing_user_not_eligible: 'PLAN_INELIGIBLE',
+  subscription_sharing_invalid_user: 'SIGNED_OUT', subscription_sharing_usage_unavailable: 'API_DOWN', subscription_sharing_user_unavailable: 'API_DOWN',
+};
+function planError(status, body) {
+  let code;
+  try { code = JSON.parse(body).error?.code; } catch { /* {"detail": …} or plain text */ }
+  if (PLAN_ERRORS[code]) return { ok: false, code: PLAN_ERRORS[code], detail: errorText(body).slice(0, 500) };
+  if (status === 401) return { ok: false, code: 'SIGNED_OUT', detail: errorText(body).slice(0, 500) };
+  return httpError(status, body);
+}
+
+// Responses API rules for plan usage: store false, stream true, system text as `instructions`, no system items,
+// no temperature or max_output_tokens. Prompt caching is automatic.
+async function chatgpt({ system, notes, prompt, schema }, model, onText) {
+  const t = await accessToken();
+  if (!t.ok) return t;
+  const body = { model, instructions: notes ? `${system}\n\n${notes}` : system, input: [{ role: 'user', content: prompt }], store: false, stream: true };
+  if (schema) body.text = { format: { type: 'json_schema', name: schema.name, strict: true, schema: schema.schema } };
+  return streamRequest(`${RESOURCE}/responses`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${t.token}` }, body: JSON.stringify(body) }, ({ data }) => {
+    const j = JSON.parse(data);
+    if (j.type === 'response.output_text.delta') return j.delta;
+    if (j.type === 'response.completed') return null;
+    if (j.type === 'response.incomplete') throw { code: 'INCOMPLETE', detail: j.response?.incomplete_details?.reason || 'The reply was cut short.' };
+    if (j.type === 'response.failed' || j.type === 'error') {
+      const e = j.response?.error || j.error || j;
+      throw { code: PLAN_ERRORS[e.code] || 'API_ERROR', detail: e.message || e.code || 'stream error' };
+    }
+    return '';
+  }, onText, planError);
+}
+
+// settings.provider: 'openrouter' (default) | 'chatgpt'. settings.openrouter = {apiKey, model, smallModel};
+// settings.chatgpt = {model, smallModel}, slugs from the account's catalogue. Older settings kept an OpenRouter key under "openai".
 export async function getSettings() {
-  const { settings } = await chrome.storage.local.get('settings');
-  return { provider: 'cli', cli: {}, anthropic: {}, openai: {}, ...settings };
+  const { settings = {} } = await chrome.storage.local.get('settings');
+  const legacy = /openrouter\.ai/.test(settings.openai?.baseUrl || '') ? settings.openai : {};
+  return { ...settings, provider: settings.provider === 'chatgpt' ? 'chatgpt' : 'openrouter',
+    openrouter: { model: legacy.model, apiKey: legacy.apiKey, ...settings.openrouter }, chatgpt: { ...settings.chatgpt } };
 }
 
-// What the UI should call the replier.
-export function replierName(s) {
-  if (s.provider === 'openai' && s.openai?.model) return s.openai.model.split('/').pop();
-  return 'Claude';
-}
+// What the UI should call the replier: the model's short name.
+// The free router picks a different model each call, so it gets a generic name.
+export const replierName = (s) => {
+  if (s?.provider === 'chatgpt') return s.chatgpt?.model || 'ChatGPT';
+  const m = s?.openrouter?.model || DEFAULT_MODEL;
+  return m === 'openrouter/free' ? 'AI' : m.split('/').pop();
+};
 
-// onText(fullTextSoFar) is called while streaming (API providers only).
-// req.small: a short job (takeaways) that goes to the provider's small model at low effort.
+// onText(fullTextSoFar) is called while streaming. req.small: a short job that goes to the small model.
 export async function ask(req, onText) {
   const s = await getSettings();
-  const small = (p) => (req.small ? { model: SMALL[p], effort: 'low' } : {});
-  if (s.provider === 'anthropic') {
-    if (!s.anthropic.apiKey) return { ok: false, code: 'NO_KEY', detail: 'No Anthropic API key set.' };
-    return anthropic(req, { effort: DEFAULT_EFFORT, ...s.anthropic, ...small('anthropic') }, onText);
+  if (s.provider === 'chatgpt') {
+    const model = (req.small && s.chatgpt.smallModel) || s.chatgpt.model;
+    if (model) return chatgpt(req, model, onText);
+    const t = await accessToken();  // not signed in explains a missing model better than "pick a model"
+    return t.ok ? { ok: false, code: 'NO_MODEL', detail: 'Pick a ChatGPT model in Settings.' } : t;
   }
-  if (s.provider === 'openai') {
-    if (!s.openai.model) return { ok: false, code: 'NO_MODEL', detail: 'No model set.' };
-    return openai(req, s.openai, onText);
-  }
-  return cli(req, { model: 'opus', effort: DEFAULT_EFFORT, ...s.cli, ...small('cli') });
+  const { apiKey, model, smallModel } = s.openrouter;
+  if (!apiKey) return { ok: false, code: 'NO_KEY', detail: 'No OpenRouter API key set.' };
+  return openrouter(req, { apiKey, model: (req.small ? smallModel || DEFAULT_SMALL_MODEL : model) || DEFAULT_MODEL }, onText);
 }

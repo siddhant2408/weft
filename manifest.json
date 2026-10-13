@@ -46,13 +46,9 @@
     "open_in_tab": true
   },
   "host_permissions": [
-    "https://api.anthropic.com/*",
     "https://openrouter.ai/*",
-    "https://api.openai.com/*"
-  ],
-  "optional_host_permissions": [
-    "https://*/*",
-    "http://localhost/*",
+    "https://auth.openai.com/*",
+    "https://api.openai.com/*",
     "http://127.0.0.1/*"
   ]
 }
