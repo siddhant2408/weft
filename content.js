@@ -23,7 +23,9 @@
   };
   let replier = replierOf(s0);
 
-  const send = (msg) => chrome.runtime.sendMessage(msg).catch(() => null);  // null if the extension was reloaded
+  // After an extension reload this script is orphaned: chrome.* throws synchronously, so wrap in a promise.
+  const chromeCall = (fn) => Promise.resolve().then(fn).catch(() => null);
+  const send = (msg) => chromeCall(() => chrome.runtime.sendMessage(msg));  // null if the extension was reloaded
   const pageInfo = () => ({
     url: location.href,
     canonical: document.querySelector('link[rel="canonical"]')?.href || null,
@@ -149,6 +151,7 @@
     .composer .tool { width: 28px; height: 28px; display: grid; place-items: center; border-radius: 6px; color: var(--faint); flex: none; }
     .composer .tool:hover { background: var(--hover); color: var(--soft); }
     .composer .tool[aria-pressed="true"] { color: var(--ink); background: var(--hover); }
+    .composer .tool[hidden] { display: none; }
     .composer .send { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; flex: none;
       background: var(--faint); color: var(--bg); }
     .composer .send.ready { background: var(--send); color: #fff; }
@@ -274,6 +277,7 @@
       ta.focus();
     }, 'tool');
     noteBtn.setAttribute('aria-pressed', 'false');
+    const keepBtn = iconBtn('keep', 'Keep highlight without commenting', () => keep(), 'tool');
     const sendBtn = iconBtn('up', 'Send', () => submit(), 'send');
     const autosize = () => {
       ta.style.height = 'auto';
@@ -291,11 +295,11 @@
     const scroll = h_('div', 'scroll');
     const msgs = h_('div', 'msgs');
     const state = h_('div', 'state');
-    const composer = h_('div', 'composer', {}, ta, noteBtn, sendBtn);
+    const composer = h_('div', 'composer', {}, ta, keepBtn, noteBtn, sendBtn);
     scroll.append(msgs);
     el.append(head, scroll, state, composer);
     cardHost.replaceChildren(el);
-    card = { el, head, scroll, msgs, state, composer, ta, sendBtn, autosize };
+    card = { el, head, scroll, msgs, state, composer, ta, keepBtn, sendBtn, autosize };
 
     syncActive();
     layout();
@@ -303,7 +307,8 @@
     card.scroll.scrollTop = card.scroll.scrollHeight;  // open at the latest comment; scroll up for history
     requestAnimationFrame(revealCard);
     if (target.id) {
-      chrome.storage.session.get([`pending:${target.id}`, `stream:${target.id}`, `phase:${target.id}`]).then((s) => {
+      chromeCall(() => chrome.storage.session.get([`pending:${target.id}`, `stream:${target.id}`, `phase:${target.id}`])).then((s) => {
+        if (!s) return;
         if (s[`pending:${target.id}`]) pending.add(target.id);
         if (s[`stream:${target.id}`]) streams[target.id] = s[`stream:${target.id}`];
         if (s[`phase:${target.id}`]) phases[target.id] = s[`phase:${target.id}`];
@@ -397,12 +402,12 @@
     if (open.id && !h) return closeCard();  // deleted elsewhere
     const busy = !!open.id && pending.has(open.id);
     card.el.classList.toggle('draft', !h && !ui.error);
+    card.keepBtn.hidden = !!h;  // only a new selection can be kept
     const resolved = h?.status === 'resolved';
     const atBottom = card.scroll.scrollHeight - card.scroll.scrollTop - card.scroll.clientHeight < 40;
 
     card.head.replaceChildren(...kids([
       h_('span', 'title', { textContent: resolved ? 'Resolved' : !h ? 'New comment' : h.messages.length ? `${h.messages.length} comment${h.messages.length === 1 ? '' : 's'}` : 'Kept highlight' }),
-      !h && iconBtn('keep', 'Keep highlight without commenting', keep),
       h && !resolved && iconBtn('check', 'Resolve with a takeaway', startResolve),
       h && iconBtn('trash', 'Delete this thread', () => { ui.confirmDelete = true; renderCard(); }),
       iconBtn('close', 'Close (Esc)', closeCard)]));
