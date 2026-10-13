@@ -10,6 +10,8 @@ Comment threads on anything you read, where the replies come from AI. Highlight 
 
 What gets sent where, and how tokens and backups are stored: [docs/privacy.md](docs/privacy.md).
 
+How related threads are found, scored and sent with a reply: [docs/related-threads.md](docs/related-threads.md).
+
 ## Develop
 
 ```sh
