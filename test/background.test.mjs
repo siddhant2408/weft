@@ -35,6 +35,7 @@ const key = 'https://example.com/article';
 const seed = () => {
   for (const k of Object.keys(state)) delete state[k];
   state.settings = {openrouter: {apiKey: 'k', model: 'test', smallModel: 'test-small'}};
+  state.conceptsVersion = 2;
   state['page:' + key] = {urlKey: key, title: 'Article', article: {text: 'OLD ARTICLE'}, summary: {text: 'GIST'},
     highlights: [{id: 'h', exact: 'passage', context: 'context', start: 0, messages: [], status: 'open'}]};
   calls.length = 0; mirrored.length = 0; tagCalls.length = 0; tagReply = '';
@@ -176,6 +177,16 @@ await run('a "need the page" reply becomes a share button; sharing summarises an
   h = state['page:' + key].highlights[0];
   assert.deepEqual(h.messages.map(x => x.content), ['question', 'Full answer.'], 'the need-page reply is replaced');
   globalThis.fetch = original;
+});
+await run('a new tagging version clears every old tag and re-tags from scratch', async () => {
+  state.conceptsVersion = 1;
+  state['page:https://other.com/x'] = {urlKey: 'https://other.com/x', title: 'Other', highlights: [
+    {id: 'o', exact: 'other passage', start: 0, messages: [{role: 'assistant', content: 'a'}], concepts: ['CRDTs for collaboration'], status: 'open', createdAt: '2026-01-01'}]};
+  tagReply = 'CRDTs';
+  await msg({type: 'thread.connections', urlKey: key, id: 'h'});
+  await wait(() => state['page:https://other.com/x'].highlights[0].concepts?.[0] === 'CRDTs');
+  assert.equal(state.conceptsVersion, 2);
+  assert.doesNotMatch(tagCalls[0].messages[0].content, /<known_concepts>\n/);  // the stale label isn't offered for reuse
 });
 await run('first reply tags the thread with concepts, reusing known ones; page Q&A is not tagged', async () => {
   state['page:https://other.com/x'] = {urlKey: 'https://other.com/x', title: 'Other', highlights: [

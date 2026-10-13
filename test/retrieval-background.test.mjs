@@ -20,6 +20,7 @@ const key = 'https://current.test', other = 'https://old.test';
 function seed() {
  for (const obj of [state, session]) for (const k in obj) delete obj[k]; calls = [];
  state.settings = {openrouter: {apiKey: 'k', model: 'main', smallModel: 'small'}};
+ state.conceptsVersion = 2;
  state['page:' + key] = {urlKey: key, title: 'Current', summary: {text: 'gist'}, highlights: [{id: 'h', exact: 'MVCC', context: 'context', concepts: ['MVCC'], messages: [], status: 'open'}]};
  state['page:' + other] = {urlKey: other, title: 'Postgres', highlights: [{id: 'old', exact: 'SOURCE_SECRET', context: 'source context', concepts: ['MVCC'], status: 'resolved', takeaway: 'Snapshot isolation', messages: [{role: 'user', content: 'Why?'}, {role: 'assistant', content: 'ANSWER_SECRET'}]}]};
 }
