@@ -10,7 +10,7 @@ window.addEventListener('error', e => { result.textContent = 'FAIL: ' + e.messag
 window.addEventListener('unhandledrejection', e => { result.textContent = 'FAIL: ' + e.reason; });
 globalThis.chrome ||= {};
 const state = {
-  settings: {provider: 'cli', anthropic: {apiKey: 'FAKE-SECRET'}},
+  settings: {openrouter: {apiKey: 'FAKE-SECRET'}},
   'page:https://example.com': {urlKey: 'https://example.com', title: 'Article', highlights: [], qa: {messages: [{role: 'note', content: 'kept'}]}},
 };
 chrome.storage = {local: {

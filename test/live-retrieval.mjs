@@ -1,28 +1,19 @@
-// Opt-in live model check, using synthetic reading data and the real tool-free native-host ask function.
-// Run on the Mac with logged-in Claude Code: node test/live-retrieval.mjs
-// Makes subscription-backed model calls. No Chrome or extension storage required; not part of offline tests.
-import { spawn } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
+// Opt-in live model check: synthetic reading data through the real OpenRouter provider. Spends OpenRouter credits.
+// Run: OPENROUTER_API_KEY=sk-or-… node test/live-retrieval.mjs   (optional MODEL=…, SMALL_MODEL=…)
+// No Chrome or extension storage required; not part of the offline tests.
 import { answerWithContext, selectContext } from '../retrieval.js';
-const host = fileURLToPath(new URL('../native-host/host.py', import.meta.url));
-const bridge = `import importlib.util,json,sys
-spec=importlib.util.spec_from_file_location('margin_host',sys.argv[1])
-m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
-print(json.dumps(m.ask(json.load(sys.stdin))))`;
+const apiKey = process.env.OPENROUTER_API_KEY;
+if (!apiKey) { console.error('Set OPENROUTER_API_KEY'); process.exit(1); }
+const openrouter = {apiKey, ...(process.env.MODEL && {model: process.env.MODEL}), ...(process.env.SMALL_MODEL && {smallModel: process.env.SMALL_MODEL})};
+globalThis.chrome = {storage: {local: {get: async () => ({settings: {openrouter}})}}};
+const { ask: providerAsk } = await import('../providers.js');
 const metrics = [];
-const ask = req => new Promise(resolve => {
+const ask = async (req, onText) => {
  const started = performance.now();
- const p = spawn('python3', ['-c', bridge, host]);
- let stdout = '', stderr = '';
- p.stdout.on('data', data => stdout += data); p.stderr.on('data', data => stderr += data);
- p.on('error', e => resolve({ok: false, code: 'HOST_ERROR', detail: String(e)}));
- p.on('close', code => {
-  let result;
-  try {result = JSON.parse(stdout);} catch {result = {ok: false, code: 'HOST_ERROR', detail: stderr.slice(0, 500) || 'No host result, exit ' + code};}
-  metrics.push({ms: Math.round(performance.now() - started), usage: result.usage || null}); resolve(result);
- });
- p.stdin.end(JSON.stringify({system: [req.system, req.notes].filter(Boolean).join('\n\n'), prompt: req.prompt, model: req.small ? 'haiku' : 'sonnet', effort: 'low'}));
-});
+ const result = await providerAsk(req, onText);
+ metrics.push({small: !!req.small, ms: Math.round(performance.now() - started)});
+ return result;
+};
 const source = {urlKey: 'https://example.com/postgres', id: 'pg', title: 'Postgres MVCC', shared: ['MVCC'], status: 'resolved',
  exact: 'Vacuum removes obsolete row versions once no active snapshot can need them.', context: '', takeaway: 'Old versions stay until no active snapshot needs them.',
  messages: [{role: 'user', content: 'Why does vacuum matter?'}, {role: 'assistant', content: 'It reclaims obsolete tuples after snapshots no longer need them.'}]};
@@ -41,7 +32,7 @@ for (const c of cases) {
   load: async ids => {read = true; return ids.map(ref => ({...source, ref}));}, cancelled: () => false, status: async () => {}});
  const passed = result.ok && read === c.expectedRead && (!read || /\[R1\]/.test(result.text));
  console.log(JSON.stringify({case: c.name, passed, read, calls: metrics.slice(start), answer: result.ok ? result.text : null, error: result.ok ? null : result}));
- if (!result.ok && ['NOT_INSTALLED', 'NOT_LOGGED_IN', 'HOST_ERROR'].includes(result.code)) {process.exitCode = 1; break;}
+ if (!result.ok && ['NO_KEY', 'BAD_KEY', 'NO_CREDITS', 'NETWORK'].includes(result.code)) {process.exitCode = 1; break;}
  if (!passed) failed = true;
 }
 if (failed) process.exitCode = 1;

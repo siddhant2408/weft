@@ -1,4 +1,4 @@
-import { getSettings, PRESETS, DEFAULT_ANTHROPIC_MODEL, DEFAULT_EFFORT } from './providers.js';
+import { getSettings, DEFAULT_MODEL, DEFAULT_SMALL_MODEL } from './providers.js';
 
 const $ = (id) => document.getElementById(id);
 const bg = (msg) => chrome.runtime.sendMessage(msg).catch((e) => ({ error: { code: 'INTERNAL', hint: String(e) } }));
@@ -8,111 +8,55 @@ function setStatus(id, text, cls = '') {
   $(id).className = 'status ' + cls;
 }
 
-// --- Model provider ---
-const radios = () => [...document.querySelectorAll('input[name=provider]')];
-const provider = () => radios().find((r) => r.checked)?.value || 'cli';
-function showFields() {
-  document.querySelectorAll('.fields').forEach((f) => { f.hidden = f.dataset.for !== provider(); });
-}
-
-function presetFor(base) {
-  return Object.entries(PRESETS).find(([, p]) => p.baseUrl === base)?.[0] || 'custom';
-}
-
+// --- Model ---
 async function loadModel() {
-  const s = await getSettings();
-  radios().forEach((r) => { r.checked = r.value === s.provider; });
-  $('c-model').value = s.cli.model || 'opus';
-  $('c-effort').value = s.cli.effort || DEFAULT_EFFORT;
-  $('a-effort').value = s.anthropic.effort || DEFAULT_EFFORT;
-  $('a-key').value = s.anthropic.apiKey || '';
-  $('a-model').value = s.anthropic.model || DEFAULT_ANTHROPIC_MODEL;
-  const base = s.openai.baseUrl || PRESETS.openrouter.baseUrl;
-  $('o-preset').value = presetFor(base);
-  $('o-base').value = base;
-  $('o-key').value = s.openai.apiKey || '';
-  $('o-model').value = s.openai.model || '';
-  $('o-base').readOnly = $('o-preset').value !== 'custom';
-  showFields();
-}
-
-radios().forEach((r) => r.addEventListener('change', () => { showFields(); setStatus('conn', 'Unsaved changes'); }));
-$('o-preset').addEventListener('change', () => {
-  const p = PRESETS[$('o-preset').value];
-  $('o-base').readOnly = !p;
-  if (p) $('o-base').value = p.baseUrl;
-  else { $('o-base').value = ''; $('o-base').focus(); }
-});
-
-// Custom endpoints need a host permission, requested while we still hold the click's user gesture.
-async function ensureOrigin(base) {
-  let origin;
-  try { origin = new URL(base).origin; } catch { return false; }
-  if (!/^https?:$/.test(new URL(base).protocol)) return false;
-  return chrome.permissions.request({ origins: [origin + '/*'] }).catch(() => false);
+  const { openrouter: o } = await getSettings();
+  $('o-key').value = o.apiKey || '';
+  $('o-model').value = o.model || DEFAULT_MODEL;
+  $('o-small').value = o.smallModel || DEFAULT_SMALL_MODEL;
 }
 
 async function saveModel() {
-  const p = provider();
-  if (p === 'openai' && !(await ensureOrigin($('o-base').value.trim()))) {
-    setStatus('conn', 'Base URL must be http(s) and access must be allowed', 'err');
-    return false;
-  }
   const { settings } = await chrome.storage.local.get('settings');
-  await chrome.storage.local.set({ settings: {
-    ...settings,
-    provider: p,
-    cli: { model: $('c-model').value, effort: $('c-effort').value },
-    anthropic: { apiKey: $('a-key').value.trim(), model: $('a-model').value.trim() || DEFAULT_ANTHROPIC_MODEL, effort: $('a-effort').value },
-    openai: { baseUrl: $('o-base').value.trim().replace(/\/+$/, ''), apiKey: $('o-key').value.trim(), model: $('o-model').value.trim() },
-  } });
+  const { provider, cli, anthropic, openai, ...rest } = settings || {};  // drop retired provider settings and keys
+  await chrome.storage.local.set({ settings: { ...rest, openrouter: {
+    apiKey: $('o-key').value.trim(), model: $('o-model').value.trim() || DEFAULT_MODEL, smallModel: $('o-small').value.trim() || DEFAULT_SMALL_MODEL,
+  } } });
   setStatus('conn', 'Saved', 'ok');
-  return true;
 }
 
+for (const id of ['o-key', 'o-model', 'o-small']) $(id).addEventListener('input', () => setStatus('conn', 'Unsaved changes'));
 $('m-save').addEventListener('click', saveModel);
 
 $('test').addEventListener('click', async () => {
   $('test').disabled = true;
   $('conn-err').replaceChildren();
-  if (await saveModel()) {
-    setStatus('conn', 'Asking the model…');
-    const res = await bg({ type: 'provider.check' });
-    if (res?.ok) setStatus('conn', `Connected · replied in ${(res.ms / 1000).toFixed(1)} s`, 'ok');
-    else {
-      setStatus('conn', 'Not connected', 'err');
-      $('conn-err').replaceChildren(Object.assign(document.createElement('div'), { className: 'error', textContent: res?.error?.hint || 'Unknown error' }));
-    }
+  await saveModel();
+  setStatus('conn', 'Asking the model…');
+  const res = await bg({ type: 'provider.check' });
+  if (res?.ok) setStatus('conn', `Connected · replied in ${(res.ms / 1000).toFixed(1)} s`, 'ok');
+  else {
+    setStatus('conn', 'Not connected', 'err');
+    $('conn-err').replaceChildren(Object.assign(document.createElement('div'), { className: 'error', textContent: res?.error?.hint || 'Unknown error' }));
   }
   $('test').disabled = false;
 });
 
-// "Load models" fills the model field's suggestions from the provider's /models endpoint.
-async function loadModels(btn, url, headers, list) {
+// "Load models" fills both model fields' suggestions from OpenRouter's public model list.
+$('o-load').addEventListener('click', async () => {
+  const btn = $('o-load'), label = btn.textContent;
   btn.disabled = true;
-  const label = btn.textContent;
   btn.textContent = 'Loading…';
   try {
-    const res = await fetch(url, { headers });
+    const res = await fetch('https://openrouter.ai/api/v1/models');
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const ids = ((await res.json()).data || []).map((m) => m.id).filter(Boolean).sort();
-    $(list).replaceChildren(...ids.map((id) => Object.assign(document.createElement('option'), { value: id })));
+    $('o-models').replaceChildren(...ids.map((id) => Object.assign(document.createElement('option'), { value: id })));
     btn.textContent = `${ids.length} models`;
   } catch (e) {
     btn.textContent = `Failed: ${e.message}`;
   }
   setTimeout(() => { btn.textContent = label; btn.disabled = false; }, 2500);
-}
-
-$('a-load').addEventListener('click', () => loadModels($('a-load'), 'https://api.anthropic.com/v1/models?limit=100', {
-  'x-api-key': $('a-key').value.trim(), 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true',
-}, 'a-models'));
-
-$('o-load').addEventListener('click', async () => {
-  const base = $('o-base').value.trim().replace(/\/+$/, '');
-  if (!(await ensureOrigin(base))) return setStatus('conn', 'Base URL must be http(s) and access must be allowed', 'err');
-  const key = $('o-key').value.trim();
-  loadModels($('o-load'), `${base}/models`, key ? { authorization: `Bearer ${key}` } : {}, 'o-models');
 });
 
 // --- Excluded sites ---

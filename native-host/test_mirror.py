@@ -1,4 +1,4 @@
-"""SQLite mirror check for host.py. No Claude needed. Run: python3 native-host/test_mirror.py"""
+"""SQLite mirror check for host.py. Run: python3 native-host/test_mirror.py"""
 import json, os, sqlite3, struct, subprocess, tempfile
 
 HOST = os.path.join(os.path.dirname(os.path.abspath(__file__)), "host.py")
@@ -34,3 +34,7 @@ for bad in ({"key": "settings", "page": {}}, {"key": "page:x", "page": "str"}, "
     r = call({"mirror": bad})
     assert r["code"] == "BAD_REQUEST", r
 print("bad mirror requests rejected")
+
+r = call({"system": "x", "prompt": "Reply with exactly: pong"})
+assert r["code"] == "BAD_REQUEST", r
+print("model requests rejected: the host only mirrors")

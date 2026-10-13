@@ -7,18 +7,15 @@ import { answerWithContext, selectContext } from './retrieval.js';
 const SNAPSHOT_MAX_CHARS = 400000; // ≈100k tokens: what the summary call itself may read
 
 const HINTS = {
-  HOST_MISSING: 'Margin\'s native host isn\'t installed. Run native-host/install.sh, then reload the extension.',
-  NOT_INSTALLED: 'Claude Code wasn\'t found at ~/.local/bin/claude.',
-  NOT_LOGGED_IN: 'Claude Code is logged out. Run `claude` once in Terminal and log in.',
-  TIMEOUT: 'Claude took longer than 2 minutes. Try again.',
+  TIMEOUT: 'The model took longer than 2 minutes. Try again.',
   NO_ARTICLE: 'Couldn\'t read this page. Reload the tab and try again.',
-  NO_KEY: 'No API key set. Add one in Settings.',
-  NO_MODEL: 'No model set. Pick one in Settings.',
-  BAD_KEY: 'The API key was rejected. Check it in Settings.',
-  BAD_MODEL: 'The provider doesn\'t know that model. Check the model name in Settings.',
-  RATE_LIMIT: 'Rate limited by the provider. Wait a moment and retry.',
-  API_DOWN: 'The provider is overloaded or down. Retry in a bit.',
-  NETWORK: 'Couldn\'t reach the provider. Check your connection.',
+  NO_KEY: 'No OpenRouter API key set. Add one in Settings.',
+  NO_CREDITS: 'Your OpenRouter account is out of credits. Top up at openrouter.ai/settings/credits.',
+  BAD_KEY: 'OpenRouter rejected the API key. Check it in Settings.',
+  BAD_MODEL: 'OpenRouter doesn\'t know that model. Check the model name in Settings.',
+  RATE_LIMIT: 'Rate limited by OpenRouter. Wait a moment and retry.',
+  API_DOWN: 'OpenRouter or the model is overloaded or down. Retry in a bit.',
+  NETWORK: 'Couldn\'t reach OpenRouter. Check your connection.',
   REFUSED: 'The model declined to answer this one.',
   INCOMPLETE: 'The reply was interrupted or hit its output limit. Retry to get a complete answer.',
   BUSY: 'A reply is already in progress for this thread. Wait for it to finish.',
@@ -169,7 +166,7 @@ async function extract(tabId) {
 }
 
 // pending:<key> marks a model call in flight so the panel can show "thinking" across reopenings;
-// stream:<key> holds the partial reply while an API provider streams (throttled; also keeps the worker awake).
+// stream:<key> holds the partial reply while the model streams (throttled; also keeps the worker awake).
 const pendingKey = (urlKey, id) => (id === 'summary' ? 'summary:' + urlKey : id === 'page' ? 'qa:' + urlKey : id);
 // Reserve before any await: UI disabling alone cannot coordinate multiple tabs.
 const requests = new Map();
@@ -287,7 +284,7 @@ function runThread(urlKey, id, request) {
 }
 
 // --- Concepts: once a thread has its first reply, a small call names what it's about (graph.js links threads by them).
-// Sends the same passage and thread the reply call just sent, to the same provider. Best-effort: a failure leaves it untagged.
+// Sends the same passage and thread the reply call just sent, to the small model. Best-effort: a failure leaves it untagged.
 async function allPages() {
   const all = await chrome.storage.local.get(null);
   return Object.entries(all).filter(([k]) => k.startsWith('page:')).map(([, v]) => v);

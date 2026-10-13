@@ -5,7 +5,7 @@
 let tabId = null, urlKey = null, page = null, orphans = [];
 let replier = 'Claude';             // who answers, from settings
 const pending = new Set();          // pending keys waiting on the model (storage.session)
-const streams = {};                 // pending key → partial reply while an API provider streams
+const streams = {};                 // pending key → partial reply while the model streams
 const phases = {};                  // pending key → retrieval status
 // A worker killed mid-request leaves its flag behind; past the 120 s timeout it's stale.
 const live = (startedAt) => Date.now() - startedAt < 150000;
@@ -136,7 +136,7 @@ function messageView(m, partial = false) {
     body);
 }
 
-// While waiting: the streamed partial reply if the provider streams, else a placeholder.
+// While waiting: the streamed partial reply, else a placeholder.
 function thinking(key, label) {
   const partial = streams[key];
   return partial ? messageView({ role: 'assistant', content: partial }, true)
@@ -324,8 +324,7 @@ function render() {
 
 // ---------- wiring ----------
 function setReplier(settings) {
-  const o = settings?.provider === 'openai' && settings.openai?.model;
-  replier = o ? o.split('/').pop() : 'Claude';
+  replier = (settings?.openrouter?.model || 'Claude').split('/').pop();
 }
 chrome.storage.local.get('settings').then(({ settings }) => { setReplier(settings); render(); });
 

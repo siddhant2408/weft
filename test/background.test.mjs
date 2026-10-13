@@ -34,7 +34,7 @@ const wait = async predicate => { for (let i = 0; i < 100; i++) { if (predicate(
 const key = 'https://example.com/article';
 const seed = () => {
   for (const k of Object.keys(state)) delete state[k];
-  state.settings = {provider: 'openai', openai: {model: 'test', baseUrl: 'https://example.com/v1'}};
+  state.settings = {openrouter: {apiKey: 'k', model: 'test', smallModel: 'test-small'}};
   state['page:' + key] = {urlKey: key, title: 'Article', article: {text: 'OLD ARTICLE'}, summary: {text: 'GIST'},
     highlights: [{id: 'h', exact: 'passage', context: 'context', start: 0, messages: [], status: 'open'}]};
   calls.length = 0; mirrored.length = 0; tagCalls.length = 0; tagReply = '';

@@ -12,15 +12,9 @@
   h2 { font-size: 18px; font-weight: 600; margin: 0 0 4px; }
   p.help { color: var(--soft); margin: 0 0 14px; font-size: 14px; }
   p.small { font-size: 12px; color: var(--faint); }
-  fieldset.choices { border: 0; padding: 0; margin: 0 0 12px; display: grid; gap: 4px; }
-  fieldset.choices label { display: flex; gap: 10px; align-items: baseline; padding: 8px 10px; border-radius: 8px; cursor: pointer; }
-  fieldset.choices label:hover { background: var(--bg-soft); }
-  fieldset.choices label:has(input:checked) { background: var(--hover); }
-  fieldset.choices input { accent-color: var(--blue); margin: 0; transform: translateY(1px); }
-  fieldset.choices .muted { display: block; font-size: 13px; }
   .fields { display: grid; gap: 12px; margin: 4px 0 14px; padding: 14px; border-radius: 10px; background: var(--bg-soft); }
   .fields label { display: grid; gap: 4px; font-size: 13px; font-weight: 500; color: var(--soft); }
-  .fields input, .fields select { background: var(--bg); }
+  .fields input { background: var(--bg); }
   .with-btn { display: flex; gap: 6px; } .with-btn input { flex: 1; }
   textarea#excluded { width: 100%; min-height: 200px; font: 13px/1.6 var(--mono); color: var(--ink); background: var(--bg-soft);
     border: 0; border-radius: 8px; box-shadow: inset 0 0 0 1px var(--line); padding: 10px 12px; resize: vertical; }
@@ -37,61 +31,16 @@
 
   <section aria-labelledby="h-model">
     <h2 id="h-model">Model</h2>
-    <p class="help">Who replies to your comments. Nothing is sent anywhere until you send a comment or click Summarise.</p>
-    <fieldset class="choices">
-      <legend class="sr">Provider</legend>
-      <label><input type="radio" name="provider" value="cli"> <span><b>Claude Code on this Mac</b> <span class="muted">Uses your Claude subscription, with its tools turned off. Replies arrive all at once.</span></span></label>
-      <label><input type="radio" name="provider" value="anthropic"> <span><b>Anthropic API key</b> <span class="muted">Pay per use. Replies stream in.</span></span></label>
-      <label><input type="radio" name="provider" value="openai"> <span><b>OpenRouter, OpenAI, or another OpenAI-compatible API</b> <span class="muted">Any model. Replies stream in.</span></span></label>
-    </fieldset>
-
-    <div class="fields" data-for="cli">
-      <label>Model
-        <select id="c-model">
-          <option value="opus">Claude Opus 5.5 · recommended</option>
-          <option value="sonnet">Claude Sonnet 5.5</option>
-          <option value="haiku">Claude Haiku 5.5 · fastest</option>
-          <option value="fable">Claude Fable 5.1 · most capable, slowest</option>
-        </select>
-      </label>
-      <label>Effort
-        <select id="c-effort">
-          <option value="low">Low · shortest replies</option>
-          <option value="medium">Medium · recommended</option>
-          <option value="high">High · more thorough, a little slower</option>
-        </select>
-      </label>
-    </div>
-
-    <div class="fields" data-for="anthropic">
-      <label>API key <input type="password" id="a-key" autocomplete="off" placeholder="sk-ant-…"></label>
-      <label>Model <span class="with-btn"><input id="a-model" list="a-models" placeholder="claude-opus-5-5"><button type="button" class="btn" id="a-load">Load models</button></span></label>
-      <datalist id="a-models"></datalist>
-      <label>Effort
-        <select id="a-effort">
-          <option value="low">Low · shortest replies</option>
-          <option value="medium">Medium · recommended</option>
-          <option value="high">High · more thorough, a little slower</option>
-        </select>
-      </label>
-    </div>
-
-    <div class="fields" data-for="openai">
-      <label>Service
-        <select id="o-preset">
-          <option value="openrouter">OpenRouter</option>
-          <option value="openai">OpenAI</option>
-          <option value="custom">Custom (Ollama, LM Studio, Groq, …)</option>
-        </select>
-      </label>
-      <label>Base URL <input id="o-base" placeholder="https://openrouter.ai/api/v1" spellcheck="false"></label>
-      <label>API key <input type="password" id="o-key" autocomplete="off" placeholder="Leave empty for local servers"></label>
-      <label>Model <span class="with-btn"><input id="o-model" list="o-models" placeholder="e.g. anthropic/… or gpt-…" spellcheck="false"><button type="button" class="btn" id="o-load">Load models</button></span></label>
+    <p class="help">Replies come from <a href="https://openrouter.ai" target="_blank" rel="noopener">OpenRouter</a>, pay per use, any model. Nothing is sent anywhere until you send a comment or click Summarise.</p>
+    <div class="fields">
+      <label>OpenRouter API key <input type="password" id="o-key" autocomplete="off" placeholder="sk-or-…"></label>
+      <label>Model <span class="with-btn"><input id="o-model" list="o-models" placeholder="anthropic/claude-sonnet-5.5" spellcheck="false"><button type="button" class="btn" id="o-load">Load models</button></span></label>
+      <label>Small model <input id="o-small" list="o-models" placeholder="anthropic/claude-haiku-5.5" spellcheck="false"></label>
       <datalist id="o-models"></datalist>
     </div>
 
-    <p class="help small">Switching model re-sends the article on your next question; changing effort doesn't. One-line takeaways always use Claude Haiku at low effort. The Anthropic API keeps each article cached for an hour.</p>
-    <p class="help small">API keys are stored in this Chrome profile's extension storage and sent only to the provider you choose.</p>
+    <p class="help small">The small model handles quick jobs: concept tags, one-line takeaways and picking related threads. Switching the main model re-sends the article on your next question.</p>
+    <p class="help small">The API key is stored in this Chrome profile's extension storage and sent only to OpenRouter.</p>
     <div class="row">
       <button class="btn" id="test">Test connection</button>
       <span class="status" id="conn" role="status"></span>

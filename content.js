@@ -16,7 +16,7 @@
   const pending = new Set();         // ids waiting on the model (storage.session)
   const streams = {};                // id → partial reply while streaming
   const phases = {};                 // id → retrieval status, never source contents
-  const replierOf = (s) => (s?.provider === 'openai' && s.openai?.model ? s.openai.model.split('/').pop() : 'Claude');
+  const replierOf = (s) => (s?.openrouter?.model || 'Claude').split('/').pop();
   let replier = replierOf(s0);
 
   const send = (msg) => chrome.runtime.sendMessage(msg).catch(() => null);  // null if the extension was reloaded
