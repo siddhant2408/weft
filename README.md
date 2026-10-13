@@ -1,38 +1,25 @@
 # Margin
 
-Comment threads on anything you read, where the replies come from AI. Spec: Notion → Tech → "Margin — … Technical Specification".
+Comment threads on anything you read, where the replies come from AI. Highlight a passage, ask about it, and Margin links the thread to related threads on other pages.
 
-## Setup (macOS)
-1. Chrome → `chrome://extensions` → Developer mode → Load unpacked → this folder.
-2. Settings → Model: pick a provider.
-   - **ChatGPT** (Plus/Pro): press *Continue with ChatGPT* and approve Margin, including plan usage. The sign-in tab closes itself; both models default to the first one your account lists. Replies count toward your plan (on Plus, the 5-hour limit shared with ChatGPT); per-app limits and disconnecting live at [ChatGPT settings → Usage](https://chatgpt.com/settings/usage).
-   - **OpenRouter**: paste an [OpenRouter](https://openrouter.ai/keys) API key. Both the main model and the small model (concept tags, takeaways, picking related threads) default to `openrouter/free`, which routes each call to a random free model: $0, but rate-limited, quality varies call to call, and free providers may log or train on prompts (your passages and threads). Free models may also need "free endpoints" allowed in OpenRouter's privacy settings. Both fields accept any OpenRouter model ID, e.g. `anthropic/claude-sonnet-5.5` and `anthropic/claude-haiku-5.5`.
-3. Optional: `./native-host/install.sh` registers the native host that backs up notes to SQLite (extension ID is pinned by `key` in manifest.json).
+## Install (macOS)
 
-## Checks
-- `for t in test/*.test.mjs; do node $t; done` and `test/run-anchor.sh` (plus `test/run-anchor.sh item.test.html` for highlight context): unit + anchoring tests.
-- `python3 native-host/test_mirror.py`: SQLite mirror save/overwrite/delete, and rejection of anything else.
-- Host log: `~/Library/Logs/margin-host.log` (no page contents).
+1. Open `chrome://extensions`, turn on Developer mode, and load this folder with **Load unpacked**.
+2. In Settings → Model, sign in with ChatGPT (Plus/Pro) or paste an [OpenRouter](https://openrouter.ai/keys) key.
+3. Optional: run `./native-host/install.sh` to back up notes to SQLite.
 
-Browser export smoke test: serve this folder with `python3 -m http.server 8000 --bind 127.0.0.1`, then open `http://127.0.0.1:8000/test/export-browser.test.html` in Chrome. It exercises both export buttons with fake storage and checks that notes survive while credentials do not. Serve over HTTP; file URLs do not reliably execute this module-based test.
+What gets sent where, and how tokens and backups are stored: [docs/privacy.md](docs/privacy.md).
 
-Retrieval UI smoke test: with the same server, open `http://127.0.0.1:8000/test/retrieval-browser.test.html`. It runs the real comment-card and side-panel code with fake Chrome APIs and OpenRouter replies and checks that the first call is the small selector, phase labels, locked/unlocked composers, hidden selection output and source links. It is not an installed-extension/live-model test.
+## Develop
 
-Opt-in live check (spends OpenRouter credits): `OPENROUTER_API_KEY=sk-or-… node test/live-retrieval.mjs`, optionally with `MODEL=` / `SMALL_MODEL=`. Synthetic definition/comparison/irrelevant-match cases report which threads the selector loaded, call durations, provider usage and actual answers. A passing selection check is not proof of answer quality: inspect the comparisons and citations. It uses the default models unless overridden.
+```sh
+for t in test/*.test.mjs; do node $t; done   # unit tests
+test/run-anchor.sh                           # anchoring (add item.test.html for highlight context)
+python3 native-host/test_mirror.py           # SQLite backup (host log: ~/Library/Logs/margin-host.log)
+```
 
-Opt-in tagging eval (spends OpenRouter credits): `OPENROUTER_API_KEY=sk-or-… MODEL=… SMALL_MODEL=… node test/eval-tags.mjs margin-export.json > tags.md` re-tags your newest 20 exported threads (`LIMIT=`) with both models and prints their concepts beside the stored ones, plus how often each reuses an existing concept. `ALT_PROMPT=file.txt` adds a run with a candidate tagging prompt. `OPENAI_API_KEY=` in place of the OpenRouter key runs it against OpenAI models directly; `CHATGPT_TOKEN=` runs it on your ChatGPT plan (how to copy the token, and `MODELS=1` to list the plan's models, are in `test/eval-env.mjs`).
+Browser smoke tests: `python3 -m http.server 8000 --bind 127.0.0.1`, then open `test/export-browser.test.html` or `test/retrieval-browser.test.html` from it.
 
-Opt-in first-answer eval (spends small-model credits): `OPENROUTER_API_KEY=sk-or-… node test/eval-first-answer.mjs margin-export.json > first-answer.md` replays the first question of your newest 40 tagged threads (`LIMIT=`). A thread is tagged only after its first reply, so the first answer picks related threads without its own concepts. The eval finds candidates with and without them, lets the real selector choose among the tagged set, and counts how often it picks a thread the first answer never saw. Same provider env vars as the tagging eval.
+Opt-in evals that spend API credits (usage in each file's header): `test/live-retrieval.mjs`, `test/eval-tags.mjs`, `test/eval-first-answer.mjs`.
 
-## Data safety
-- Threads send only the highlighted passage, its enclosing paragraph/section/post (≤2,000 chars), the page title, and the page summary if you made one. The full page is sent only to summarise it: when you press Summarise, ask in the page Q&A thread, or press "Share page and retry" on a reply that needed it.
-- After a thread's first reply, a second small call sends the same passage and thread to the same model to name the 2–4 concepts your question is about (plus the list of concepts you already use, so it reuses them). Threads on different pages that share a concept show up under "Related threads" on the comment card. Threads from before this feature are tagged the first time a card asks for related threads. All threads → Graph draws every thread as a dot, linked to the threads it shares a concept with; hovering one shows what it links to and why.
-- **On-demand cross-page context.** Before a reply, Margin finds up to five candidate threads from other pages: shared concepts plus word overlap with the passage, question and recent conversation. A call to the small model sees a short index of them (title, concepts, ~100-char hints of the passage, question, takeaway and last AI reply) and returns `{"ids":[...]}`: at most two threads, or none. Margin then reads those threads fresh and sends them to the answering model, with source passages, reader-approved takeaways and unverified prior AI answers labelled separately. The UI shows "Finding relevant context…" then "Answering…". Citations like [R1] become ↗ links to the original passage; a citation to a thread that wasn't loaded is left as plain text. An invalid selection fails visibly and can be retried. With no candidates there is no extra call. Trade-off: whenever candidates exist, a reply costs two model calls instead of one.
-- The candidate index is capped at 3,000 UTF-8 bytes, and loaded cross-page context at 6,000 bytes including JSON escaping (size bounds, not token counts or a total-prompt limit). Truncation is marked. Retrieved excerpts and the selection output are not saved; only the final answer and its citation links are. Deleting a loaded source or the current page/thread cancels the pending reply locally; it cannot retract what was already sent to the provider.
-- "Related threads" on the comment card still lists threads sharing a concept; the word-overlap matching is only used to find candidates for replies.
-- Every page save and delete is also copied to `~/Library/Application Support/Margin/notes.db` (SQLite, table `pages(key, json, updated_at)`) through the native host, so notes survive uninstalling the extension and are covered by Time Machine. It's best-effort: without the host installed, Margin works as before and nothing is copied. Deleting in Margin deletes the copy too. Search it with e.g. `sqlite3 notes.db "select key from pages where json like '%term%'"`.
-- **Sign in with ChatGPT** uses OpenAI's open-source plan-usage flow (OAuth code + PKCE, dynamic client registration) and calls the Responses API with `store: false`. Its redirect goes to `http://127.0.0.1:1455/auth/callback`; nothing listens there, the background worker reads the code from the sign-in tab's URL and closes it. Tokens (1-hour access, 30-day rotating refresh) are kept in the extension's own IndexedDB, not `chrome.storage`: Margin's content scripts can read `chrome.storage` from inside every web page, but IndexedDB belongs to the extension's origin, so only Margin's pages and background worker can reach it. OpenAI's guidance is to keep tokens out of browser storage; this is a deliberate trade-off so Margin ships as a plain extension with no helper to install. What remains exposed: malware running as you (it could read the Chrome profile, as it could a Keychain item via `security`), backups of the Chrome profile, and a malicious Margin update. A stolen refresh token can spend your plan's allowance and shows your email; it can't read your chats or change your account. To limit it, set a weekly cap for Margin at [ChatGPT settings → Usage](https://chatgpt.com/settings/usage); disconnecting Margin there revokes it. Refresh tokens rotate, so someone else using yours signs you out, which you'd notice. Sign out revokes the refresh token. Exports never include tokens.
-- JSON exports use `{version: 1, pages: [...]}` and include notes, conversations, summaries and article snapshots—not settings or API keys. Previously exported files may contain keys; revoke/rotate those keys if a file was shared.
-- Only one AI reply per thread (or page summary) runs at a time; different threads can run concurrently.
-- Deleting a page or all data invalidates outstanding replies, so late completions cannot recreate deleted records or alter a new request. This suppresses local results; it does not cancel or refund the OpenRouter call.
-- Interrupted or output-limited API streams report an error and are not saved as complete answers. The original question remains available for retry.
+Spec: Notion → Tech → "Margin — … Technical Specification".
