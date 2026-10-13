@@ -124,6 +124,10 @@ assert.deepEqual(seen[0].json, { model: 'gpt-6-luna', instructions: 'SYS\n\nNOTE
 assert.equal(seen[0].init.headers.authorization, 'Bearer A2');
 await ask({ small: true, system: 'S', prompt: 'P' });
 assert.equal(seen.at(-1).json.model, 'gpt-5.6-luna');
+assert.equal(seen.at(-1).json.text, undefined);
+const schema = { name: 'pick', schema: { type: 'object' } };
+await ask({ small: true, system: 'S', prompt: 'P', schema });
+assert.deepEqual(seen.at(-1).json.text, { format: { type: 'json_schema', name: 'pick', strict: true, schema: { type: 'object' } } });
 
 // Plan errors: before the stream (HTTP) and mid-stream (response.failed); a stream without completion is incomplete.
 routes['https://api.openai.com/v1/responses'] = () => json({ error: { code: 'subscription_sharing_usage_limit_exceeded', message: 'limit' } }, 429);

@@ -74,13 +74,16 @@ async function streamRequest(url, init, onData, onText, toError = httpError) {
   }
 }
 
-function openrouter({ system, notes, prompt }, { apiKey, model }, onText) {
+// req.schema = {name, schema}: ask for JSON matching it. Models that don't support structured output may still ignore
+// it (the free router picks models at random), so callers keep validating the reply.
+function openrouter({ system, notes, prompt, schema }, { apiKey, model }, onText) {
   // Anthropic models on OpenRouter cache only with an explicit breakpoint; other models cache automatically.
   const content = /^anthropic\//.test(model)
     ? [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }, ...(notes ? [{ type: 'text', text: notes }] : [])]
     : (notes ? `${system}\n\n${notes}` : system);
   const headers = { 'content-type': 'application/json', authorization: `Bearer ${apiKey}`, 'X-Title': 'Margin' };
   const body = { model, stream: true, messages: [{ role: 'system', content }, { role: 'user', content: prompt }] };
+  if (schema) body.response_format = { type: 'json_schema', json_schema: { name: schema.name, strict: true, schema: schema.schema } };
   return streamRequest(`${BASE}/chat/completions`, { method: 'POST', headers, body: JSON.stringify(body) }, ({ data }) => {
     if (data === '[DONE]') return null;
     const j = JSON.parse(data);
@@ -106,10 +109,11 @@ function planError(status, body) {
 
 // Responses API rules for plan usage: store false, stream true, system text as `instructions`, no system items,
 // no temperature or max_output_tokens. Prompt caching is automatic.
-async function chatgpt({ system, notes, prompt }, model, onText) {
+async function chatgpt({ system, notes, prompt, schema }, model, onText) {
   const t = await accessToken();
   if (!t.ok) return t;
   const body = { model, instructions: notes ? `${system}\n\n${notes}` : system, input: [{ role: 'user', content: prompt }], store: false, stream: true };
+  if (schema) body.text = { format: { type: 'json_schema', name: schema.name, strict: true, schema: schema.schema } };
   return streamRequest(`${RESOURCE}/responses`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${t.token}` }, body: JSON.stringify(body) }, ({ data }) => {
     const j = JSON.parse(data);
     if (j.type === 'response.output_text.delta') return j.delta;

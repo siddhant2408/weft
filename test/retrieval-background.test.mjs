@@ -64,6 +64,16 @@ await run('no candidates uses one ordinary call without the selector', async () 
  assert.doesNotMatch(calls[0].req.system, /<thread_index>\n|Return ONLY one JSON/);
  calls[0].finish('Normal answer.'); assert.equal((await pending).ok, true);
 });
+await run('replies are saved without leading or trailing blank lines', async () => {
+ delete state['page:' + other]; const pending = send(); await wait(() => calls.length === 1);
+ calls[0].finish('\n\nPadded answer.\n'); await pending;
+ assert.equal(state['page:' + key].highlights[0].messages.at(-1).content, 'Padded answer.');
+});
+await run('the answering prompt says to ignore unhelpful related threads silently', async () => {
+ delete state['page:' + other]; const pending = send(); await wait(() => calls.length === 1);
+ assert.match(calls[0].req.system, /ignore it silently/);
+ calls[0].finish('Ok.'); await pending;
+});
 for (const bad of ['plain text', '{"ids":["R9"]}', '{"ids":["R1","R1"]}']) {
  await run('invalid protocol fails without loading: ' + bad, async () => {
   const pending = send(); await wait(() => calls.length === 1); calls[0].finish(bad);

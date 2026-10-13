@@ -60,6 +60,16 @@ assert.deepEqual([lastReq.init.headers.authorization, lastReq.body.model], ['Bea
 settings = { provider: 'openai', openai: { baseUrl: 'http://localhost:11434/v1', model: 'llama' } };
 assert.equal((await ask({ system: 'S', prompt: 'P' })).code, 'NO_KEY', 'non-OpenRouter settings are not reused');
 
+// A schema becomes a strict json_schema response_format; without one there is none.
+settings = { openrouter: { apiKey: 'k' } };
+const schema = { name: 'pick', schema: { type: 'object', properties: { ids: { type: 'array' } } } };
+serve('data: [DONE]\n\n');
+await ask({ small: true, system: 'S', prompt: 'P', schema });
+assert.deepEqual(lastReq.body.response_format, { type: 'json_schema', json_schema: { name: 'pick', strict: true, schema: schema.schema } });
+serve('data: [DONE]\n\n');
+await ask({ system: 'S', prompt: 'P' });
+assert.equal(lastReq.body.response_format, undefined);
+
 // CRLF line endings; mid-stream error; HTTP errors; missing key; network failure
 settings = { openrouter: { apiKey: 'k', model: 'openai/gpt-x' } };
 serve(chunk('x').replace(/\n/g, '\r\n') + 'data: [DONE]\r\n\r\n');
