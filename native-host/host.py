@@ -3,13 +3,9 @@
 
 Mirror:   {"mirror": {"key": "page:…", "page": {...} | null}}
           copies one page record into a SQLite file that outlives the extension; null deletes it.
-ChatGPT:  {"chatgpt": "signin" | "token" | "status" | "signout"}
-          Sign in with ChatGPT; the host keeps the credentials (see chatgpt.py).
 Runs under Chrome's minimal env (/usr/bin/python3 3.9, bare PATH), so keep it stdlib + 3.9.
 """
 import json, os, sqlite3, struct, sys, time
-
-import chatgpt
 
 LOG = os.path.expanduser("~/Library/Logs/margin-host.log")
 DB = os.environ.get("MARGIN_DB") or os.path.expanduser("~/Library/Application Support/Margin/notes.db")
@@ -55,12 +51,7 @@ def main():
     req = read_msg()
     t0 = time.time()
     try:
-        if isinstance(req, dict) and "mirror" in req:
-            res = mirror(req["mirror"])
-        elif isinstance(req, dict) and "chatgpt" in req:
-            res = chatgpt.handle(req["chatgpt"])
-        else:
-            res = {"ok": False, "code": "BAD_REQUEST", "detail": "expected {mirror} or {chatgpt}"}
+        res = mirror(req["mirror"]) if isinstance(req, dict) and "mirror" in req else {"ok": False, "code": "BAD_REQUEST", "detail": "expected {mirror}"}
     except Exception as e:  # never leave Chrome without a reply
         res = {"ok": False, "code": "HOST_ERROR", "detail": repr(e)[:500]}
     res["ms"] = int((time.time() - t0) * 1000)

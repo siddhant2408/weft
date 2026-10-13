@@ -5,7 +5,7 @@ const storage = obj => ({get: async k => k == null ? clone(obj) : Object.fromEnt
  set: async data => Object.assign(obj, clone(data)), remove: async ks => {for (const k of Array.isArray(ks) ? ks : [ks]) delete obj[k];}, setAccessLevel: async () => {}});
 globalThis.chrome = {storage: {local: storage(state), session: storage(session)}, sidePanel: {setPanelBehavior: async () => {}},
  runtime: {id: 'test', onMessage: {addListener: fn => listener = fn}, sendNativeMessage: (host, req, cb) => setTimeout(() => cb({ok: true}))},
- tabs: {sendMessage: async () => ({title: 'Article', text: 'article'})}};
+ tabs: {onUpdated: {addListener() {}}, sendMessage: async () => ({title: 'Article', text: 'article'})}};
 // Fake OpenRouter: each model call waits in `calls` until the test finishes it with the reply text. Tagging replies empty.
 const sse = text => new Response(`data: ${JSON.stringify({choices: [{delta: {content: text}}]})}\n\ndata: [DONE]\n\n`);
 globalThis.fetch = async (url, init) => {

@@ -5,7 +5,7 @@
 // because they change as the user reads; prompt is the per-call part.
 // Raw fetch rather than SDKs: the extension has no build step (spec D1).
 
-import { RESOURCE, accessToken, forgetToken } from './chatgpt.js';
+import { RESOURCE, accessToken } from './chatgpt.js';
 
 export const HOST = 'com.margin.host';  // native host: SQLite mirror only
 const TIMEOUT_MS = 120000;
@@ -110,7 +110,7 @@ async function chatgpt({ system, notes, prompt }, model, onText) {
   const t = await accessToken();
   if (!t.ok) return t;
   const body = { model, instructions: notes ? `${system}\n\n${notes}` : system, input: [{ role: 'user', content: prompt }], store: false, stream: true };
-  const res = await streamRequest(`${RESOURCE}/responses`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${t.token}` }, body: JSON.stringify(body) }, ({ data }) => {
+  return streamRequest(`${RESOURCE}/responses`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${t.token}` }, body: JSON.stringify(body) }, ({ data }) => {
     const j = JSON.parse(data);
     if (j.type === 'response.output_text.delta') return j.delta;
     if (j.type === 'response.completed') return null;
@@ -121,8 +121,6 @@ async function chatgpt({ system, notes, prompt }, model, onText) {
     }
     return '';
   }, onText, planError);
-  if (res.code === 'SIGNED_OUT') forgetToken();
-  return res;
 }
 
 // settings.provider: 'openrouter' (default) | 'chatgpt'. settings.openrouter = {apiKey, model, smallModel};

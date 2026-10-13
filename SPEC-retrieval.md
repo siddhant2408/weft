@@ -13,7 +13,7 @@ Scope: replace automatic cross-page excerpt injection with index → select → 
 - No concept synthesis, fuzzy matching, OAuth, new dependencies or automatic question resolution.
 
 ## Implementation
-Pure retrieval.js owns index formatting, selection validation, budgeted content formatting and orchestration. background.js owns lookup, request lifetime and storage writes. providers.js streams OpenRouter Chat Completions or the ChatGPT-plan Responses API, each with a main and a small model; no tools. ChatGPT sign-in and credentials live in the native host (native-host/chatgpt.py, Keychain); chatgpt.js only asks it for 1-hour access tokens. content.js / sidepanel.js display a phase flag beside existing pending state.
+Pure retrieval.js owns index formatting, selection validation, budgeted content formatting and orchestration. background.js owns lookup, request lifetime and storage writes. providers.js streams OpenRouter Chat Completions or the ChatGPT-plan Responses API (auth in chatgpt.js; tokens in the extension origin's IndexedDB, out of content scripts' reach), each with a main and a small model; no tools. content.js / sidepanel.js display a phase flag beside existing pending state.
 
 ## Commands and style
 ES modules and plain JavaScript, no build step; follow existing compact functions. Tests use node:assert and fake Chrome storage/native messaging only at boundaries.
