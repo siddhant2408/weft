@@ -13,7 +13,7 @@ function setStatus(id, text, cls = '') {
 const radios = () => [...document.querySelectorAll('input[name=provider]')];
 const provider = () => radios().find((r) => r.checked)?.value || 'openrouter';
 function showFields() {
-  document.querySelectorAll('.fields').forEach((f) => { f.hidden = f.dataset.for !== provider(); });
+  document.querySelectorAll('.fields[data-for]').forEach((f) => { f.hidden = f.dataset.for !== provider(); });
 }
 
 async function loadModel() {
