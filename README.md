@@ -15,6 +15,10 @@ Comment threads on anything you read, where the replies come from AI. Spec: Noti
 
 Browser export smoke test: serve this folder with `python3 -m http.server 8000 --bind 127.0.0.1`, then open `http://127.0.0.1:8000/test/export-browser.test.html` in Chrome. It exercises both export buttons with fake storage and checks that notes survive while credentials do not. Serve over HTTP; file URLs do not reliably execute this module-based test.
 
+Retrieval UI smoke test: with the same server, open `http://127.0.0.1:8000/test/retrieval-browser.test.html`. It runs the real comment-card and side-panel code with fake Chrome APIs/native-model replies and checks phase labels, locked/unlocked composers, hidden control output and source links. It is not an installed-extension/live-model test.
+
+Opt-in live CLI check (subscription-backed calls): `node test/live-retrieval.mjs` on the Mac with Python 3 and logged-in Claude Code. Synthetic definition/comparison/irrelevant-match cases report selected context, call durations, provider usage and actual answers. A passing selection check is not proof of answer quality: inspect the comparisons and citations. The harness uses Sonnet at low effort; validate your configured model separately before rollout.
+
 ## Data safety
 - Threads send only the highlighted passage, its enclosing paragraph/section/post (≤2,000 chars), the page title, and the page summary if you made one. The full page is sent only to summarise it: when you press Summarise, ask in the page Q&A thread, or press "Share page and retry" on a reply that needed it.
 - After a thread's first reply, a second small call sends the same passage and thread to the same model to name 3–5 concepts it's about (plus the list of concepts you already use, so it reuses them). Threads on different pages that share a concept show up under "Related threads" on the comment card. Threads from before this feature are tagged the first time a card asks for related threads. All threads → Graph draws every thread as a dot, linked to the threads it shares a concept with; hovering one shows what it links to and why.
