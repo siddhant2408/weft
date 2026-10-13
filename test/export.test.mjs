@@ -5,6 +5,7 @@ const ctx = vm.createContext({});
 vm.runInContext(fs.readFileSync(new URL('../notes.js', import.meta.url), 'utf8'), ctx);
 const data = ctx.MarginNotes.exportData({
   settings: { openrouter: { apiKey: 'FAKE-SECRET' } },
+  chatgpt: { refreshToken: 'FAKE-SECRET', accessToken: 'FAKE-SECRET' },
   unrelated: 'private',
   'page:https://example.com': { urlKey: 'https://example.com', title: 'Article',
     highlights: [{ id: 'h', exact: 'passage', messages: [{ role: 'user', content: 'question', ts: 'now' }] }],

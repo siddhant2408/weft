@@ -1,6 +1,7 @@
 import { normaliseUrl } from './url.js';
 import { HOST, ask, getSettings, replierName } from './providers.js';
 import { connections, parseConcepts, vocabulary } from './graph.js';
+import * as ChatGPT from './chatgpt.js';
 import { buildIndex, findCandidates } from './thread-index.js';
 import { answerWithContext, selectContext } from './retrieval.js';
 
@@ -10,6 +11,13 @@ const HINTS = {
   TIMEOUT: 'The model took longer than 2 minutes. Try again.',
   NO_ARTICLE: 'Couldn\'t read this page. Reload the tab and try again.',
   NO_KEY: 'No OpenRouter API key set. Add one in Settings.',
+  NO_MODEL: 'No ChatGPT model chosen. Pick one in Settings.',
+  SIGNED_OUT: 'Signed out of ChatGPT. Sign in again in Settings.',
+  PLAN_NOT_GRANTED: 'Margin isn\'t allowed to use your ChatGPT plan. Sign in again in Settings and allow plan usage.',
+  PLAN_LIMIT: 'You\'ve reached your ChatGPT plan\'s limit for Margin. Check chatgpt.com/settings/usage, or switch to OpenRouter in Settings.',
+  PLAN_INELIGIBLE: 'This ChatGPT account or workspace can\'t share its plan with apps. Use OpenRouter in Settings.',
+  SIGNIN_DECLINED: 'ChatGPT sign-in was cancelled.',
+  SIGNIN_FAILED: 'ChatGPT sign-in failed. Try again.',
   NO_CREDITS: 'Your OpenRouter account is out of credits. Top up at openrouter.ai/settings/credits.',
   DATA_POLICY: 'Your OpenRouter privacy settings block this model. Free models need "free endpoints" allowed at openrouter.ai/settings/privacy.',
   BAD_KEY: 'OpenRouter rejected the API key. Check it in Settings.',
@@ -442,7 +450,35 @@ const handlers = {
   },
 
   'thread.reopen': (msg) => updateThread(msg.urlKey, msg.id, (h) => { h.status = 'open'; }),
+
+  'chatgpt.signin': () => ChatGPT.signIn(),
+  'chatgpt.signout': async () => {
+    const res = await ChatGPT.signOut();
+    const { settings } = await chrome.storage.local.get('settings');
+    await chrome.storage.local.set({ settings: { ...settings, provider: 'openrouter' } });
+    return res;
+  },
+  'chatgpt.models': async () => {
+    const res = await ChatGPT.models();
+    return res.ok ? res : fail(res.code, res.detail);
+  },
 };
+
+// Sign in with ChatGPT ends by sending its tab to a 127.0.0.1 address nothing listens on; this catches it. A successful
+// sign-in switches replies to ChatGPT, defaulting both models to the account's first listed one. The outcome goes to
+// storage.session for the Settings page, which may have been closed meanwhile.
+chrome.tabs.onUpdated.addListener(async (tabId, info) => {
+  const res = await ChatGPT.handleRedirect(tabId, info.url);
+  if (!res) return;
+  if (res.ok) {
+    const s = await getSettings();
+    const first = (await ChatGPT.models()).models?.[0]?.slug;
+    const { settings } = await chrome.storage.local.get('settings');
+    await chrome.storage.local.set({ settings: { ...settings, provider: 'chatgpt',
+      chatgpt: { model: s.chatgpt.model || first, smallModel: s.chatgpt.smallModel || first } } });
+  }
+  await chrome.storage.session.set({ 'chatgpt.result': res.ok ? { ok: true, email: res.email, at: Date.now() } : { ...fail(res.code, res.detail), at: Date.now() } });
+});
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (sender.id !== chrome.runtime.id) return;

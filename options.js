@@ -9,23 +9,73 @@ function setStatus(id, text, cls = '') {
 }
 
 // --- Model ---
+const radios = () => [...document.querySelectorAll('input[name=provider]')];
+const provider = () => radios().find((r) => r.checked)?.value || 'openrouter';
+function showFields() {
+  document.querySelectorAll('.fields').forEach((f) => { f.hidden = f.dataset.for !== provider(); });
+}
+
 async function loadModel() {
-  const { openrouter: o } = await getSettings();
+  const s = await getSettings();
+  radios().forEach((r) => { r.checked = r.value === s.provider; });
+  const o = s.openrouter;
   $('o-key').value = o.apiKey || '';
   $('o-model').value = o.model || DEFAULT_MODEL;
   $('o-small').value = o.smallModel || DEFAULT_SMALL_MODEL;
+  showFields();
+  await loadChatGPT(s.chatgpt);
+}
+
+// Signed in: who, plus model pickers filled from the account's catalogue. Signed out: just the sign-in button.
+async function loadChatGPT(chosen) {
+  const { chatgpt: auth = {} } = await chrome.storage.local.get('chatgpt');
+  const signedIn = !!auth.refreshToken;
+  $('g-signin').hidden = signedIn;
+  $('g-signout').hidden = !signedIn;
+  $('g-models').hidden = true;
+  setStatus('g-who', signedIn ? `Signed in as ${auth.email || 'your ChatGPT account'}` : 'Not signed in');
+  if (!signedIn) return;
+  const res = await bg({ type: 'chatgpt.models' });
+  if (!res?.ok) return setStatus('g-who', res?.error?.hint || 'Couldn\'t load your models', 'err');
+  for (const [id, value] of [['g-model', chosen.model], ['g-small', chosen.smallModel]]) {
+    $(id).replaceChildren(...res.models.map((m) => Object.assign(document.createElement('option'), { value: m.slug, textContent: m.name })));
+    $(id).value = res.models.some((m) => m.slug === value) ? value : res.models[0]?.slug || '';
+  }
+  $('g-models').hidden = false;
 }
 
 async function saveModel() {
   const { settings } = await chrome.storage.local.get('settings');
-  const { provider, cli, anthropic, openai, ...rest } = settings || {};  // drop retired provider settings and keys
-  await chrome.storage.local.set({ settings: { ...rest, openrouter: {
+  const { cli, anthropic, openai, ...rest } = settings || {};  // drop retired provider settings and keys
+  const next = { ...rest, provider: provider(), openrouter: {
     apiKey: $('o-key').value.trim(), model: $('o-model').value.trim() || DEFAULT_MODEL, smallModel: $('o-small').value.trim() || DEFAULT_SMALL_MODEL,
-  } } });
+  } };
+  if (!$('g-models').hidden) next.chatgpt = { model: $('g-model').value, smallModel: $('g-small').value };
+  await chrome.storage.local.set({ settings: next });
   setStatus('conn', 'Saved', 'ok');
 }
 
-for (const id of ['o-key', 'o-model', 'o-small']) $(id).addEventListener('input', () => setStatus('conn', 'Unsaved changes'));
+radios().forEach((r) => r.addEventListener('change', () => { showFields(); setStatus('conn', 'Unsaved changes'); }));
+for (const id of ['o-key', 'o-model', 'o-small', 'g-model', 'g-small']) $(id).addEventListener('input', () => setStatus('conn', 'Unsaved changes'));
+
+$('g-signin').addEventListener('click', async () => {
+  await chrome.storage.session.remove('chatgpt.result');
+  const res = await bg({ type: 'chatgpt.signin' });
+  setStatus('g-who', res?.ok ? 'Finish signing in in the ChatGPT tab…' : res?.error?.hint || 'Couldn\'t start sign-in', res?.ok ? '' : 'err');
+});
+$('g-signout').addEventListener('click', async () => {
+  const res = await bg({ type: 'chatgpt.signout' });
+  await loadModel();
+  if (res?.ok && !res.revoked) setStatus('g-who', 'Signed out here. Couldn\'t confirm with OpenAI: disconnect Margin in ChatGPT settings if needed.', 'err');
+});
+// The background worker finishes sign-in when the ChatGPT tab redirects, then reports here.
+chrome.storage.onChanged.addListener(async (changes, area) => {
+  const r = area === 'session' && changes['chatgpt.result']?.newValue;
+  if (!r) return;
+  await loadModel();
+  if (!r.ok) setStatus('g-who', r.error?.hint || 'Sign-in failed', 'err');
+});
+
 $('m-save').addEventListener('click', saveModel);
 
 $('test').addEventListener('click', async () => {

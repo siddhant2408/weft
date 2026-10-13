@@ -46,6 +46,9 @@
     "open_in_tab": true
   },
   "host_permissions": [
-    "https://openrouter.ai/*"
+    "https://openrouter.ai/*",
+    "https://auth.openai.com/*",
+    "https://api.openai.com/*",
+    "http://127.0.0.1/*"
   ]
 }

@@ -1,6 +1,6 @@
 # On-demand reading-thread context
 
-Scope: replace automatic cross-page excerpt injection with index → select → inject, Model calls go through OpenRouter only (Claude CLI, direct Anthropic and other OpenAI-compatible providers removed). Base: main (after #5).
+Scope: replace automatic cross-page excerpt injection with index → select → inject, Model calls go through OpenRouter or Sign in with ChatGPT (Claude CLI, direct Anthropic and other OpenAI-compatible providers removed). Base: main (after #5).
 
 ## Behavior and boundaries
 - thread-index.js projects current records into an index; findCandidates picks at most five threads from other pages by shared concepts plus weighted word overlap.
@@ -13,7 +13,7 @@ Scope: replace automatic cross-page excerpt injection with index → select → 
 - No concept synthesis, fuzzy matching, OAuth, new dependencies or automatic question resolution.
 
 ## Implementation
-Pure retrieval.js owns index formatting, selection validation, budgeted content formatting and orchestration. background.js owns lookup, request lifetime and storage writes. providers.js is a single OpenRouter Chat Completions client with a main and a small model; no tools. content.js / sidepanel.js display a phase flag beside existing pending state.
+Pure retrieval.js owns index formatting, selection validation, budgeted content formatting and orchestration. background.js owns lookup, request lifetime and storage writes. providers.js streams OpenRouter Chat Completions or the ChatGPT-plan Responses API (auth in chatgpt.js), each with a main and a small model; no tools. content.js / sidepanel.js display a phase flag beside existing pending state.
 
 ## Commands and style
 ES modules and plain JavaScript, no build step; follow existing compact functions. Tests use node:assert and fake Chrome storage/native messaging only at boundaries.

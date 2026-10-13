@@ -1,7 +1,11 @@
-// The model provider: OpenRouter's Chat Completions API with the user's key, streamed. Returns {ok, text} | {ok: false, code, detail}.
+// Model providers, both streamed. Each returns {ok, text} | {ok: false, code, detail}.
+//   openrouter → OpenRouter's Chat Completions API with the user's key
+//   chatgpt    → the Responses API on the user's ChatGPT plan (Sign in with ChatGPT, see chatgpt.js)
 // system (instructions + article) is the stable, cached prefix; notes (the reader's notes) follow it uncached,
 // because they change as the user reads; prompt is the per-call part.
 // Raw fetch rather than SDKs: the extension has no build step (spec D1).
+
+import { RESOURCE, accessToken } from './chatgpt.js';
 
 export const HOST = 'com.margin.host';  // native host: SQLite mirror only
 const TIMEOUT_MS = 120000;
@@ -34,24 +38,24 @@ async function* sse(body) {
   }
 }
 
-function httpError(status, detail) {
+function httpError(status, body) {
+  const detail = errorText(body);
   const code = status === 401 || status === 403 ? 'BAD_KEY' : status === 402 ? 'NO_CREDITS' : status === 429 ? 'RATE_LIMIT'
     : status === 404 ? (/data policy/i.test(detail) ? 'DATA_POLICY' : 'BAD_MODEL') : status >= 500 ? 'API_DOWN' : 'API_ERROR';
   return { ok: false, code, detail: `HTTP ${status}: ${detail}`.slice(0, 500) };
 }
 
-async function readError(res) {
-  const t = await res.text().catch(() => '');
-  try { const j = JSON.parse(t); return j.error?.message || j.message || t; } catch { return t; }
+function errorText(t) {
+  try { const j = JSON.parse(t); return j.error?.message || j.message || j.detail || t; } catch { return t; }
 }
 
 // Shared fetch + stream loop. `onDelta(json)` returns text to append, or throws {code, detail} to fail.
-async function streamRequest(url, init, onData, onText) {
+async function streamRequest(url, init, onData, onText, toError = httpError) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
   try {
     const res = await fetch(url, { ...init, signal: ctrl.signal });
-    if (!res.ok) return httpError(res.status, await readError(res));
+    if (!res.ok) return toError(res.status, await res.text().catch(() => ''));
     let text = '', complete = false;
     for await (const ev of sse(res.body)) {
       const delta = onData(ev);
@@ -87,20 +91,65 @@ function openrouter({ system, notes, prompt }, { apiKey, model }, onText) {
   }, onText);
 }
 
-// settings.openrouter = {apiKey, model, smallModel}. Older settings kept an OpenRouter key under "openai".
+// ChatGPT plan errors carry a code (developers.openai.com/siwc/token-sharing-open-source/errors-and-recovery).
+const PLAN_ERRORS = {
+  subscription_sharing_usage_limit_exceeded: 'PLAN_LIMIT', subscription_sharing_user_not_eligible: 'PLAN_INELIGIBLE',
+  subscription_sharing_invalid_user: 'SIGNED_OUT', subscription_sharing_usage_unavailable: 'API_DOWN', subscription_sharing_user_unavailable: 'API_DOWN',
+};
+function planError(status, body) {
+  let code;
+  try { code = JSON.parse(body).error?.code; } catch { /* {"detail": …} or plain text */ }
+  if (PLAN_ERRORS[code]) return { ok: false, code: PLAN_ERRORS[code], detail: errorText(body).slice(0, 500) };
+  if (status === 401) return { ok: false, code: 'SIGNED_OUT', detail: errorText(body).slice(0, 500) };
+  return httpError(status, body);
+}
+
+// Responses API rules for plan usage: store false, stream true, system text as `instructions`, no system items,
+// no temperature or max_output_tokens. Prompt caching is automatic.
+async function chatgpt({ system, notes, prompt }, model, onText) {
+  const t = await accessToken();
+  if (!t.ok) return t;
+  const body = { model, instructions: notes ? `${system}\n\n${notes}` : system, input: [{ role: 'user', content: prompt }], store: false, stream: true };
+  return streamRequest(`${RESOURCE}/responses`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${t.token}` }, body: JSON.stringify(body) }, ({ data }) => {
+    const j = JSON.parse(data);
+    if (j.type === 'response.output_text.delta') return j.delta;
+    if (j.type === 'response.completed') return null;
+    if (j.type === 'response.incomplete') throw { code: 'INCOMPLETE', detail: j.response?.incomplete_details?.reason || 'The reply was cut short.' };
+    if (j.type === 'response.failed' || j.type === 'error') {
+      const e = j.response?.error || j.error || j;
+      throw { code: PLAN_ERRORS[e.code] || 'API_ERROR', detail: e.message || e.code || 'stream error' };
+    }
+    return '';
+  }, onText, planError);
+}
+
+// settings.provider: 'openrouter' (default) | 'chatgpt'. settings.openrouter = {apiKey, model, smallModel};
+// settings.chatgpt = {model, smallModel}, slugs from the account's catalogue. Older settings kept an OpenRouter key under "openai".
 export async function getSettings() {
   const { settings = {} } = await chrome.storage.local.get('settings');
   const legacy = /openrouter\.ai/.test(settings.openai?.baseUrl || '') ? settings.openai : {};
-  return { ...settings, openrouter: { model: legacy.model, apiKey: legacy.apiKey, ...settings.openrouter } };
+  return { ...settings, provider: settings.provider === 'chatgpt' ? 'chatgpt' : 'openrouter',
+    openrouter: { model: legacy.model, apiKey: legacy.apiKey, ...settings.openrouter }, chatgpt: { ...settings.chatgpt } };
 }
 
 // What the UI should call the replier: the model's short name.
 // The free router picks a different model each call, so it gets a generic name.
-export const replierName = (s) => { const m = s?.openrouter?.model || DEFAULT_MODEL; return m === 'openrouter/free' ? 'AI' : m.split('/').pop(); };
+export const replierName = (s) => {
+  if (s?.provider === 'chatgpt') return s.chatgpt?.model || 'ChatGPT';
+  const m = s?.openrouter?.model || DEFAULT_MODEL;
+  return m === 'openrouter/free' ? 'AI' : m.split('/').pop();
+};
 
 // onText(fullTextSoFar) is called while streaming. req.small: a short job that goes to the small model.
 export async function ask(req, onText) {
-  const { apiKey, model, smallModel } = (await getSettings()).openrouter;
+  const s = await getSettings();
+  if (s.provider === 'chatgpt') {
+    const model = (req.small && s.chatgpt.smallModel) || s.chatgpt.model;
+    if (model) return chatgpt(req, model, onText);
+    const t = await accessToken();  // not signed in explains a missing model better than "pick a model"
+    return t.ok ? { ok: false, code: 'NO_MODEL', detail: 'Pick a ChatGPT model in Settings.' } : t;
+  }
+  const { apiKey, model, smallModel } = s.openrouter;
   if (!apiKey) return { ok: false, code: 'NO_KEY', detail: 'No OpenRouter API key set.' };
   return openrouter(req, { apiKey, model: (req.small ? smallModel || DEFAULT_SMALL_MODEL : model) || DEFAULT_MODEL }, onText);
 }

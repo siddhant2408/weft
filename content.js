@@ -16,7 +16,11 @@
   const pending = new Set();         // ids waiting on the model (storage.session)
   const streams = {};                // id → partial reply while streaming
   const phases = {};                 // id → retrieval status, never source contents
-  const replierOf = (s) => { const m = s?.openrouter?.model; return !m || m === 'openrouter/free' ? 'AI' : m.split('/').pop(); };
+  const replierOf = (s) => {
+    if (s?.provider === 'chatgpt') return s.chatgpt?.model || 'ChatGPT';
+    const m = s?.openrouter?.model;
+    return !m || m === 'openrouter/free' ? 'AI' : m.split('/').pop();
+  };
   let replier = replierOf(s0);
 
   const send = (msg) => chrome.runtime.sendMessage(msg).catch(() => null);  // null if the extension was reloaded

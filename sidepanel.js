@@ -325,7 +325,7 @@ function render() {
 // ---------- wiring ----------
 function setReplier(settings) {
   const m = settings?.openrouter?.model;
-  replier = !m || m === 'openrouter/free' ? 'AI' : m.split('/').pop();
+  replier = settings?.provider === 'chatgpt' ? settings.chatgpt?.model || 'ChatGPT' : !m || m === 'openrouter/free' ? 'AI' : m.split('/').pop();
 }
 chrome.storage.local.get('settings').then(({ settings }) => { setReplier(settings); render(); });
 
