@@ -23,7 +23,7 @@ assert.ok(!indexMatches(index.find(e=>e.id==='pg'),'pineapple'));
 pages[1].highlights[0].messages.push({role:'user',content:'What about replication lag?'});
 pages[1].highlights[0].status='open';
 index=buildIndex(pages);
-assert.match(index.find(e=>e.id==='pg').description,/replication lag/);
+assert.match(index.find(e=>e.id==='pg').question,/replication lag/);
 assert.equal(index.find(e=>e.id==='pg').approvedTakeaway,'');
 assert.ok(findCandidates(index,{urlKey:'current',question:'Why lag?',recent:[{role:'user',content:'We were discussing replication'}]}).some(e=>e.id==='pg'));
 pages[1].highlights=[];

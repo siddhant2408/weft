@@ -43,15 +43,15 @@ try {
  root.querySelector('textarea').value = 'Compare MVCC with Postgres';
  root.querySelector('textarea').dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter', bubbles: true}));
  await wait(() => calls.length === 1);
- check(!calls[0].req.system.includes('Source answer.'), 'Content leaked before retrieval');
- calls[0].finish('{"action":"read","ids":["R1"]}');
- await wait(() => calls.length === 2 && root.textContent.includes('Checking a related thread…'));
+ check(calls[0].req.system.startsWith('You select') && calls[0].req.model === 'haiku', 'First call is not the small selector');
+ calls[0].finish('{"ids":["R1"]}');
+ await wait(() => calls.length === 2 && root.textContent.includes('Answering…'));
  check(root.querySelector('textarea').disabled, 'Composer not locked during retrieval');
  calls[1].finish('Compared with Postgres [R1].');
  await wait(() => root.querySelector('.body a'));
  check(root.querySelector('.body a').href.startsWith(other + '#'), 'Wrong source citation');
  check(root.querySelector('.body a').target === '_blank', 'Citation replaces reading page');
- check(!root.textContent.includes('"action"'), 'Control output visible');
+ check(!root.textContent.includes('"ids"'), 'Control output visible');
  await wait(() => !root.querySelector('textarea').disabled);
  const html = await (await fetch('../sidepanel.html')).text();
  const dom = new DOMParser().parseFromString(html, 'text/html'); dom.querySelectorAll('script').forEach(s => s.remove());
@@ -59,11 +59,11 @@ try {
  await import('../sidepanel.js');
  await wait(() => document.body.textContent.includes('Current'));
  const pending = chrome.runtime.sendMessage({type: 'thread.send', urlKey: key, id: 'page', text: 'Compare MVCC with Postgres', ask: true});
- await wait(() => calls.length === 3); calls[2].finish('{"action":"read","ids":["R1"]}');
- await wait(() => calls.length === 4 && document.body.textContent.includes('Checking a related thread…'));
+ await wait(() => calls.length === 3); calls[2].finish('{"ids":["R1"]}');
+ await wait(() => calls.length === 4 && document.body.textContent.includes('Answering…'));
  calls[3].finish('Page comparison [R1].'); await pending;
  await wait(() => [...document.querySelectorAll('.body a')].some(a => a.href.startsWith(other + '#')));
- check(!document.body.textContent.includes('Checking a related thread…'), 'Phase not cleared');
+ check(!document.body.textContent.includes('Answering…'), 'Phase not cleared');
  check(errors.length === 0, errors.join('; '));
  result.textContent = 'PASS: real comment card and side panel show retrieval status, hide control output, unlock composer and link citations to original passages (fake Chrome APIs/native model)';
 } catch (e) {result.textContent = 'FAIL: ' + e.stack + '\n' + errors.join('\n');}

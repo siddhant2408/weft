@@ -1,6 +1,6 @@
 import { normaliseUrl } from './url.js';
 import { HOST, ask, getSettings, replierName } from './providers.js';
-import { parseConcepts, vocabulary } from './graph.js';
+import { connections, parseConcepts, vocabulary } from './graph.js';
 import { buildIndex, findCandidates } from './thread-index.js';
 import { answerWithContext, selectContext } from './retrieval.js';
 
@@ -23,7 +23,7 @@ const HINTS = {
   INCOMPLETE: 'The reply was interrupted or hit its output limit. Retry to get a complete answer.',
   BUSY: 'A reply is already in progress for this thread. Wait for it to finish.',
   CANCELLED: 'This request was cancelled because its page or thread was deleted.',
-  SELECTION_INVALID: 'The model returned an invalid context selection or citation. Retry your question.',
+  SELECTION_INVALID: 'The model returned an invalid context selection. Retry your question.',
   SOURCE_MISSING: 'A requested related thread no longer exists. Retry to refresh the related threads.',
 };
 const fail = (code, detail) => ({ error: { code, hint: (HINTS[code] && detail && /^API_|REFUSED/.test(code) ? `${HINTS[code]} (${detail})` : HINTS[code]) || detail || code } });
@@ -440,10 +440,7 @@ const handlers = {
   'thread.connections': async (msg) => {
     const pages = await allPages();
     backfill(pages);
-    const h = findThread(pages.find(p => p.urlKey === msg.urlKey), msg.id);
-    if (!h) return { links: [] };
-    return { links: findCandidates(buildIndex(pages), { urlKey: msg.urlKey, id: msg.id, passage: h.exact,
-      context: h.context, concepts: h.concepts, question: h.messages.filter(m => m.role === 'user').at(-1)?.content || '', recent: h.messages.slice(-3) }) };
+    return { links: connections(pages, msg.urlKey, msg.id) };
   },
 
   'thread.reopen': (msg) => updateThread(msg.urlKey, msg.id, (h) => { h.status = 'open'; }),

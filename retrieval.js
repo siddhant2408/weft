@@ -69,8 +69,7 @@ export async function answerWithContext({system,notes,prompt,query,candidates,se
     const selection=await select(query,candidates);
     if (cancelled()) return {ok:false,code:'CANCELLED'};
     if (!selection.ok) return selection;
-    const ids=parseSelection(JSON.stringify({ids:selection.ids}),candidates);
-    if (ids===null) return {ok:false,code:'SELECTION_INVALID'};
+    const {ids}=selection;
     if (ids.length) {
       links=await load(ids);
       if (cancelled()) return {ok:false,code:'CANCELLED'};
@@ -85,7 +84,6 @@ export async function answerWithContext({system,notes,prompt,query,candidates,se
     let control;
     try {control=JSON.parse(answer.text);} catch { /* normal prose */ }
     if (!answer.text.trim() || control && (Object.hasOwn(control,'ids') || ['read','answer'].includes(control.action))) return {ok:false,code:'SELECTION_INVALID'};
-    if ([...answer.text.matchAll(/\[R(\d+)\]/g)].some(([,n])=>!links.some(l=>l.ref==='R'+n))) return {ok:false,code:'SELECTION_INVALID'};
   }
   return {...answer,links};
 }

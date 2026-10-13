@@ -2,7 +2,6 @@
 import {norm} from './graph.js';
 const STOP = new Set('a an and are as at be been but by can could do does for from had has have how i if in is it its me my of on or our should so that the their them then there these they this those to was we were what when where which who why will with would you your passage question context article'.split(' '));
 const words = text => new Set(norm(String(text || '')).split(' ').filter(w => w.length > 2 && !STOP.has(w)));
-const short = (text, n = 300) => String(text || '').slice(0,n);
 export const threadKey = (urlKey, id) => JSON.stringify([urlKey,id]);
 
 export function buildIndex(pages) {
@@ -11,10 +10,9 @@ export function buildIndex(pages) {
     const question = messages.filter(m => m.role === 'user').at(-1)?.content || '';
     const lastAnswer = messages.filter(m => m.role === 'assistant').at(-1)?.content || '';
     const approvedTakeaway = h.status === 'resolved' ? h.takeaway || '' : '';
-    const description = [question && 'Question: ' + short(question), approvedTakeaway ? 'Reader takeaway: ' + short(approvedTakeaway) : lastAnswer && 'AI suggestion: ' + short(lastAnswer)].filter(Boolean).join('\n');
     const searchText = [page.title,h.exact,h.context,...(h.concepts || []),approvedTakeaway,...messages.map(m=>m.content)].join('\n');
     return {urlKey:page.urlKey,id:h.id,title:page.title || '',exact:h.exact || '',context:h.context || '',concepts:h.concepts || [],
-      status:h.status,takeaway:h.takeaway,approvedTakeaway,question,lastAnswer,description,searchText,
+      status:h.status,takeaway:h.takeaway,approvedTakeaway,question,lastAnswer,searchText,
       createdAt:h.createdAt,updatedAt:page.updatedAt,messages:messages.slice(-4)};
   }));
 }

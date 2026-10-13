@@ -3,7 +3,7 @@
 // Makes subscription-backed model calls. No Chrome or extension storage required; not part of offline tests.
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { retrieveReply } from '../retrieval.js';
+import { answerWithContext, selectContext } from '../retrieval.js';
 const host = fileURLToPath(new URL('../native-host/host.py', import.meta.url));
 const bridge = `import importlib.util,json,sys
 spec=importlib.util.spec_from_file_location('margin_host',sys.argv[1])
@@ -21,7 +21,7 @@ const ask = req => new Promise(resolve => {
   try {result = JSON.parse(stdout);} catch {result = {ok: false, code: 'HOST_ERROR', detail: stderr.slice(0, 500) || 'No host result, exit ' + code};}
   metrics.push({ms: Math.round(performance.now() - started), usage: result.usage || null}); resolve(result);
  });
- p.stdin.end(JSON.stringify({system: [req.system, req.notes].filter(Boolean).join('\n\n'), prompt: req.prompt, model: 'sonnet', effort: 'low'}));
+ p.stdin.end(JSON.stringify({system: [req.system, req.notes].filter(Boolean).join('\n\n'), prompt: req.prompt, model: req.small ? 'haiku' : 'sonnet', effort: 'low'}));
 });
 const source = {urlKey: 'https://example.com/postgres', id: 'pg', title: 'Postgres MVCC', shared: ['MVCC'], status: 'resolved',
  exact: 'Vacuum removes obsolete row versions once no active snapshot can need them.', context: '', takeaway: 'Old versions stay until no active snapshot needs them.',
@@ -35,7 +35,9 @@ const cases = [
 let failed = false;
 for (const c of cases) {
  let read = false; const start = metrics.length;
- const result = await retrieveReply({system, notes: '', prompt: `<passage>${c.passage}</passage>\n${c.question}`, candidates: [source], ask,
+ const query = {passage: c.passage, context: '', question: c.question, recent: []};
+ const result = await answerWithContext({system, notes: '', prompt: `<passage>${c.passage}</passage>\n${c.question}`, query, candidates: [source], ask,
+  select: (q, cands) => selectContext({query: q, candidates: cands, ask}), onText: () => {},
   load: async ids => {read = true; return ids.map(ref => ({...source, ref}));}, cancelled: () => false, status: async () => {}});
  const passed = result.ok && read === c.expectedRead && (!read || /\[R1\]/.test(result.text));
  console.log(JSON.stringify({case: c.name, passed, read, calls: metrics.slice(start), answer: result.ok ? result.text : null, error: result.ok ? null : result}));
