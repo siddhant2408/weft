@@ -487,14 +487,14 @@ const handlers = {
 };
 
 // Sign in with ChatGPT ends by sending its tab to a 127.0.0.1 address nothing listens on; this catches it. A successful
-// sign-in switches replies to ChatGPT, defaulting both models to the account's first listed one. The outcome goes to
+// sign-in switches replies to ChatGPT, defaulting both models to the account's Luna (chatgpt.js defaultModel). The outcome goes to
 // storage.session for the Settings page, which may have been closed meanwhile.
 chrome.tabs.onUpdated.addListener(async (tabId, info) => {
   const res = await ChatGPT.handleRedirect(tabId, info.url);
   if (!res) return;
   if (res.ok) {
     const s = await getSettings();
-    const first = (await ChatGPT.models()).models?.[0]?.slug;
+    const first = ChatGPT.defaultModel((await ChatGPT.models()).models);
     const { settings } = await chrome.storage.local.get('settings');
     await chrome.storage.local.set({ settings: { ...settings, provider: 'chatgpt',
       chatgpt: { model: s.chatgpt.model || first, smallModel: s.chatgpt.smallModel || first } } });

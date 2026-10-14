@@ -122,9 +122,21 @@ assert.deepEqual(res, { ok: true, text: 'Hello' });
 assert.deepEqual(partials, ['Hel', 'Hello']);
 assert.deepEqual(seen[0].json, { model: 'gpt-6-luna', instructions: 'SYS\n\nNOTES', input: [{ role: 'user', content: 'P' }], store: false, stream: true });
 assert.equal(seen[0].init.headers.authorization, 'Bearer A2');
+assert.equal(seen[0].json.reasoning, undefined, 'replies keep the model\'s default reasoning');
 await ask({ small: true, system: 'S', prompt: 'P' });
 assert.equal(seen.at(-1).json.model, 'gpt-5.6-luna');
 assert.equal(seen.at(-1).json.text, undefined);
+assert.equal(seen.at(-1).json.reasoning, undefined, 'small jobs (tags) keep reasoning');
+await ask({ small: true, quick: true, system: 'S', prompt: 'P' });
+assert.deepEqual(seen.at(-1).json.reasoning, { effort: 'none' }, 'quick jobs skip reasoning');
+// A model that rejects effort "none" is retried once with its default reasoning.
+const ok = routes['https://api.openai.com/v1/responses'];
+routes['https://api.openai.com/v1/responses'] = (init) => JSON.parse(init.body).reasoning
+  ? json({ detail: "Unsupported value: 'none' for reasoning.effort" }, 400) : ok(init);
+seen = [];
+assert.deepEqual(await ask({ small: true, quick: true, system: 'S', prompt: 'P' }), { ok: true, text: 'Hello' });
+assert.deepEqual(seen.map((r) => r.json.reasoning), [{ effort: 'none' }, undefined]);
+routes['https://api.openai.com/v1/responses'] = ok;
 const schema = { name: 'pick', schema: { type: 'object' } };
 await ask({ small: true, system: 'S', prompt: 'P', schema });
 assert.deepEqual(seen.at(-1).json.text, { format: { type: 'json_schema', name: 'pick', strict: true, schema: { type: 'object' } } });
@@ -144,6 +156,9 @@ assert.equal((await ask({ system: 'S', prompt: 'P' })).code, 'INCOMPLETE');
 routes['https://api.openai.com/v1/models'] = () => json({ models: [{ slug: 'gpt-6-luna', display_name: 'GPT-6 Luna', visibility: 'list' },
   { slug: 'hidden', visibility: 'hide' }, { slug: 'gpt-5.6-luna', visibility: 'list' }] });
 assert.deepEqual(await G.models(), { ok: true, models: [{ slug: 'gpt-6-luna', name: 'GPT-6 Luna' }, { slug: 'gpt-5.6-luna', name: 'gpt-5.6-luna' }] });
+assert.equal(G.defaultModel([{ slug: 'gpt-5.6-terra' }, { slug: 'gpt-6-luna' }]), 'gpt-6-luna');
+assert.equal(G.defaultModel([{ slug: 'gpt-5.6-terra' }]), 'gpt-5.6-terra');
+assert.equal(G.defaultModel([]), undefined);
 
 // 8. A dead refresh token signs out but keeps the client and host IDs; a network failure keeps everything.
 vault.chatgpt.expiresAt = 0;

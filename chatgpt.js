@@ -1,4 +1,4 @@
-// Sign in with ChatGPT: spends the user's Plus/Pro plan through the Responses API (providers.js streams it).
+// Sign in with ChatGPT: spends the user's paid ChatGPT plan (Go, Plus, Pro) through the Responses API (providers.js streams it).
 // OAuth code flow with PKCE and dynamic client registration, per developers.openai.com/siwc/token-sharing-open-source.
 // The redirect must be an http://127.0.0.1 loopback. Nothing listens there: the background worker watches the
 // sign-in tab and reads the code from its URL as the browser heads there, then closes the tab.
@@ -166,3 +166,6 @@ export async function models() {
     return { ok: false, code: 'NETWORK', detail: String(e?.message || e) };
   }
 }
+
+// Default for both model slots: the account's first Luna, else its first model. Plans list different models.
+export const defaultModel = (list) => (list?.find((m) => /luna/i.test(m.slug)) || list?.[0])?.slug;

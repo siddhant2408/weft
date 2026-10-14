@@ -41,7 +41,7 @@
     <fieldset class="choices">
       <legend class="sr">Provider</legend>
       <label><input type="radio" name="provider" value="openrouter"> <span><b>OpenRouter</b> <span class="muted">Any model with an API key. Free models by default.</span></span></label>
-      <label><input type="radio" name="provider" value="chatgpt"> <span><b>ChatGPT</b> <span class="muted">Uses your ChatGPT Plus or Pro plan. No API key.</span></span></label>
+      <label><input type="radio" name="provider" value="chatgpt"> <span><b>ChatGPT</b> <span class="muted">Uses your paid ChatGPT plan (Go, Plus or Pro). No API key.</span></span></label>
     </fieldset>
 
     <div class="fields" data-for="openrouter">
@@ -60,7 +60,7 @@
         <label>Model <select id="g-model"></select></label>
         <label>Small model <select id="g-small"></select></label>
       </div>
-      <p class="help small">Replies count toward your ChatGPT plan's usage, shared with ChatGPT itself; on Plus that includes the 5-hour limit. Set how much Margin may use, or disconnect it, at <a href="https://chatgpt.com/settings/usage" target="_blank" rel="noopener">ChatGPT settings → Usage</a>. Your sign-in is stored in Margin's own extension storage, out of reach of web pages, and sent only to OpenAI. A weekly cap there limits what a leaked sign-in could spend.</p>
+      <p class="help small">Replies count toward your ChatGPT plan's usage, shared with ChatGPT itself, including its 5-hour limit. Set how much Margin may use, or disconnect it, at <a href="https://chatgpt.com/settings/usage" target="_blank" rel="noopener">ChatGPT settings → Usage</a>. Your sign-in is stored in Margin's own extension storage, out of reach of web pages, and sent only to OpenAI. A weekly cap there limits what a leaked sign-in could spend.</p>
     </div>
 
     <p class="help small">The small model handles quick jobs: concept tags and one-line takeaways. Switching the main model re-sends the article on your next question.</p>
