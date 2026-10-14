@@ -47,6 +47,7 @@ Jev never sees a candidate's surrounding context, earlier messages or tags. It j
 - Candidates scoring at least **`MIN_SCORE` (1, useful background)** are kept, best first, up to **3**. They get the refs `R1`–`R3` in that order.
 - Jev may keep none. Then the reply has no related context.
 - **Fallback:** with no TypeSafe key, or if the Jev call fails or leaves a candidate unscored, the shortlist's top 3 are used. A reply never fails because of Jev.
+- **Why not the ChatGPT model as the judge?** Tried and dropped (Oct 2026). Plan usage returns only the chosen token's logprob (no `top_logprobs`), which is enough for a yes/no: P(yes) = e^logprob after "yes", 1 − e^logprob after "no". On the same 43 real pairs, run twice: Jev's scores moved 0.04 on average (1 flip across the cut-off); Luna answering every candidate in one call moved 0.38 (12 flips), because each answer after the first is conditioned on words already sampled; one call per candidate, with the answer as the first token, moved 0.13 (3 flips) at one call per candidate, and agreed with Jev's picks in 2 of 12 replies. So without a key, the shortlist's top 3 it is.
 
 ### 4. Inject
 

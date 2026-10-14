@@ -63,8 +63,10 @@ const cell = (s) => String(s ?? '').replace(/\s+/g, ' ').replace(/\|/g, '\\|').s
 console.log(`# Related-thread eval: ${pairs.length} pairs\n\n| pair | question | candidate | helps | score |\n|---|---|---|---|---|`);
 // Pairs with the same current thread share one request, as the extension scores a reply's whole shortlist at once.
 for (const group of Map.groupBy(pairs, (p) => JSON.stringify(p.query)).values()) {
-  const scores = await scoreRelated({ query: group[0].query, candidates: group.map((p) => p.candidate), judge });
-  if (!scores) { console.error('Jev call failed (check the key)'); process.exit(1); }
+  let why = 'a candidate left unscored';
+  const logged = async (...args) => { const r = await judge(...args); if (!r.ok) why = `${r.code}: ${r.detail}`; return r; };
+  const scores = await scoreRelated({ query: group[0].query, candidates: group.map((p) => p.candidate), judge: logged });
+  if (!scores) { console.error(`Jev failed on "${group[0].query.question}": ${why}`); process.exit(1); }
   group.forEach((p, i) => { p.score = scores[i]; });
 }
 for (const p of pairs) console.log(`| ${cell(p.name)} | ${cell(p.query.question)} | ${cell(p.candidate.question || p.candidate.exact)} | ${p.helps ?? '?'} | ${p.score.toFixed(2)} |`);
