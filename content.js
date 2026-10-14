@@ -161,6 +161,12 @@
     .chips[hidden], .chips:empty { display: none; }
     .chip { font-size: 12.5px; padding: 4px 11px; border-radius: 999px; color: var(--soft); background: var(--bg); box-shadow: var(--shadow); }
     .chip:hover { color: var(--ink); }
+    /* The card rises in; its buttons follow one after another. */
+    .card { animation: rise .16s ease-out; }
+    .chip { animation: rise .2s ease-out backwards; }
+    .chip:nth-child(2) { animation-delay: .04s; } .chip:nth-child(3) { animation-delay: .08s; } .chip:nth-child(4) { animation-delay: .12s; }
+    @keyframes rise { from { opacity: 0; transform: translateY(4px) scale(.98); } }
+    @media (prefers-reduced-motion: reduce) { .card, .chip { animation: none; } }
     /* A new comment is just the input, like Notion: the card itself is the box. */
     .card.draft .head { display: none; }
     .card.draft .composer { margin: 0; padding: 9px 8px 9px 14px; box-shadow: none; }
@@ -449,8 +455,13 @@
 
     card.composer.classList.toggle('hidden', resolved || !!ui.resolving);
     const fresh = !busy && !resolved && !ui.resolving && !h?.messages.length;
-    card.chips.replaceChildren(...(fresh ? quickActions(h?.exact ?? open.draft.range.toString()) : []).map(([action, label, hint]) =>
-      h_('button', 'chip', { type: 'button', textContent: label, title: hint, onclick: () => submit(action) })));
+    const actions = fresh ? quickActions(h?.exact ?? open.draft.range.toString()) : [];
+    const chipsKey = actions.map(([a]) => a).join();
+    if (card.chipsKey !== chipsKey) {  // rebuild only when the set changes, so the entrance doesn't replay on every render
+      card.chipsKey = chipsKey;
+      card.chips.replaceChildren(...actions.map(([action, label, hint]) =>
+        h_('button', 'chip', { type: 'button', textContent: label, title: hint, onclick: () => submit(action) })));
+    }
     card.ta.disabled = busy;
     card.sendBtn.disabled = busy;
     card.ta.placeholder = h?.messages.length ? `Reply, or ask ${replier} a follow-up…` : `Ask ${replier} about this…`;
