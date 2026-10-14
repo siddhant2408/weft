@@ -226,4 +226,16 @@ await run('a reply citing selected context keeps a link to its original passage'
   globalThis.fetch = original;
   assert.deepEqual(state['page:' + key].highlights[0].messages.at(-1).refs, {1: {urlKey: 'https://other.com/x', exact: 'other passage', title: 'Other'}});
 });
+await run('a quick action shows its question and sends its task; unknown actions fall back to the text', async () => {
+  const q = msg({type: 'thread.send', urlKey: key, id: 'h', text: 'ignored', action: 'explain', ask: true, tabId: 1});
+  await wait(() => calls.length === 1);
+  const prompt = calls[0].body.messages.at(-1).content;
+  assert.match(prompt, /\[me\] Explain what this passage means/);
+  calls[0].finish(); await q;
+  assert.deepEqual(state['page:' + key].highlights[0].messages[0], {...state['page:' + key].highlights[0].messages[0], content: 'What does this mean here?', action: 'explain'});
+  const bad = msg({type: 'thread.send', urlKey: key, id: 'h', text: 'typed', action: '__proto__', ask: true, tabId: 1});
+  await wait(() => calls.length === 2); calls[1].finish(); await bad;
+  const m = state['page:' + key].highlights[0].messages[2];
+  assert.equal(m.content, 'typed'); assert.equal(m.action, undefined);
+});
 console.log('background lifecycle: all passed');
