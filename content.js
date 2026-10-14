@@ -156,6 +156,11 @@
     .composer .send.ready { background: var(--send); color: #fff; }
     .composer .send:disabled { cursor: default; }
     .composer.hidden { display: none; }
+    /* Quick actions hang just below the card, outside its box, and move with it. */
+    .chips { position: absolute; top: 100%; left: 0; right: 0; margin-top: 8px; display: flex; flex-wrap: wrap; gap: 6px; }
+    .chips[hidden], .chips:empty { display: none; }
+    .chip { font-size: 12.5px; padding: 4px 11px; border-radius: 999px; color: var(--soft); background: var(--bg); box-shadow: var(--shadow); }
+    .chip:hover { color: var(--ink); }
     /* A new comment is just the input, like Notion: the card itself is the box. */
     .card.draft .head { display: none; }
     .card.draft .composer { margin: 0; padding: 9px 8px 9px 14px; box-shadow: none; }
@@ -254,6 +259,12 @@
   }
 
   // ---------- the comment card ----------
+  // One-click questions on a passage with no comments yet; ACTIONS in background.js says what each asks the model.
+  // A short selection gets Define, a longer one Simplify, in the same slot.
+  const quickActions = (quote) => [['explain', 'Explain', 'What it means here'],
+    quote.trim().split(/\s+/).length <= 4 ? ['define', 'Define', 'The word, as used here'] : ['simplify', 'Simplify', 'The same idea in plain words'],
+    ['check', 'Fact-check', 'Does it still hold up?'], ['counter', 'Counterpoint', 'The strongest objection to it']];
+
   // open = { id } for a saved thread, or { id: null, draft: { selector, context, range } } before the first message.
   let open = null, card = null;
   let cardLift = 0;  // px the card sits above its natural spot, so it fits at the end of a short page
@@ -271,10 +282,12 @@
     const ta = h_('textarea', '', { rows: 1, ariaLabel: 'Comment' });
     const keepBtn = iconBtn('keep', 'Save without asking (anything typed is kept as a note)', () => keep(), 'tool');
     const sendBtn = iconBtn('up', 'Send', () => submit(), 'send');
+    const chips = h_('div', 'chips');
     const autosize = () => {
       ta.style.height = 'auto';
       ta.style.height = `${Math.min(ta.scrollHeight, 160)}px`;
       sendBtn.classList.toggle('ready', !!ta.value.trim());
+      chips.hidden = !!ta.value.trim();  // typing your own question: the buttons step aside
     };
     ta.addEventListener('input', autosize);
     ta.addEventListener('keydown', (e) => {
@@ -289,9 +302,9 @@
     const state = h_('div', 'state');
     const composer = h_('div', 'composer', {}, ta, keepBtn, sendBtn);
     scroll.append(msgs);
-    el.append(head, scroll, state, composer);
+    el.append(head, scroll, state, composer, chips);
     cardHost.replaceChildren(el);
-    card = { el, head, scroll, msgs, state, composer, ta, keepBtn, sendBtn, autosize };
+    card = { el, head, scroll, msgs, state, composer, chips, ta, keepBtn, sendBtn, autosize };
 
     syncActive();
     layout();
@@ -342,8 +355,9 @@
   let lastCardHeight = 0;
   function revealCard() {
     if (!card) return;
-    const r = card.el.getBoundingClientRect();
-    lastCardHeight = r.height;
+    const box = card.el.getBoundingClientRect();
+    const r = { top: box.top, bottom: Math.max(box.bottom, card.chips.getBoundingClientRect().bottom) };  // the buttons below count too
+    lastCardHeight = box.height;
     const pad = 16;
     let dy = 0;
     if (r.bottom > innerHeight - pad) dy = Math.min(r.bottom - innerHeight + pad, r.top - pad);
@@ -434,6 +448,9 @@
     fetchLinks(h);
 
     card.composer.classList.toggle('hidden', resolved || !!ui.resolving);
+    const fresh = !busy && !resolved && !ui.resolving && !h?.messages.length;
+    card.chips.replaceChildren(...(fresh ? quickActions(h?.exact ?? open.draft.range.toString()) : []).map(([action, label, hint]) =>
+      h_('button', 'chip', { type: 'button', textContent: label, title: hint, onclick: () => submit(action) })));
     card.ta.disabled = busy;
     card.sendBtn.disabled = busy;
     card.ta.placeholder = h?.messages.length ? `Reply, or ask ${replier} a follow-up…` : `Ask ${replier} about this…`;
@@ -524,16 +541,17 @@
     closeCard();
   }
 
-  async function submit() {
-    const text = card.ta.value.trim();
-    if (!text || !open) return;
+  // action: one of the quick-action buttons, sent instead of typed text.
+  async function submit(action) {
+    const text = action ? '' : card.ta.value.trim();
+    if ((!text && !action) || !open) return;
     ui.error = null;
     if (open.draft && !(await saveDraft())) return;
     const id = open.id;
     card.ta.value = '';
     pending.add(id);
     renderCard();
-    const r = await send({ type: 'thread.send', urlKey, id, text, ask: true });
+    const r = await send({ type: 'thread.send', urlKey, id, text, ask: true, ...(action && { action }) });
     if (r?.error) { pending.delete(id); if (open?.id === id) ui.error = r.error; }
     renderCard();
   }
