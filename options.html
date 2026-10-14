@@ -46,8 +46,8 @@
 
     <div class="fields" data-for="openrouter">
       <label>OpenRouter API key <input type="password" id="o-key" autocomplete="off" placeholder="sk-or-…"></label>
-      <label>Model <span class="with-btn"><input id="o-model" list="o-models" placeholder="openrouter/free" spellcheck="false"><button type="button" class="btn" id="o-load">Load models</button></span></label>
-      <label>Small model <input id="o-small" list="o-models" placeholder="openrouter/free" spellcheck="false"></label>
+      <label>Replies and summaries <span class="with-btn"><input id="o-model" list="o-models" placeholder="openrouter/free" spellcheck="false"><button type="button" class="btn" id="o-load">Load models</button></span></label>
+      <label>Tags and takeaways <input id="o-small" list="o-models" placeholder="openrouter/free" spellcheck="false"></label>
       <datalist id="o-models"></datalist>
       <p class="help small">The default, <code>openrouter/free</code>, costs nothing but picks a random free model each call, is rate-limited, and free providers may log or train on what you send. Set a paid model (e.g. <code>anthropic/claude-sonnet-5.5</code>) for steadier, private replies. The key is sent only to OpenRouter.</p>
     </div>
@@ -57,13 +57,13 @@
         <button type="button" class="btn primary" id="g-signin">Continue with ChatGPT</button>
         <button type="button" class="btn" id="g-signout" hidden>Sign out</button></div>
       <div id="g-models" hidden>
-        <label>Model <select id="g-model"></select></label>
-        <label>Small model <select id="g-small"></select></label>
+        <label>Replies and summaries <select id="g-model"></select></label>
+        <label>Tags and takeaways <select id="g-small"></select></label>
       </div>
       <p class="help small">Replies count toward your ChatGPT plan's usage, shared with ChatGPT itself, including its 5-hour limit. Set how much Margin may use, or disconnect it, at <a href="https://chatgpt.com/settings/usage" target="_blank" rel="noopener">ChatGPT settings → Usage</a>. Your sign-in is stored in Margin's own extension storage, out of reach of web pages, and sent only to OpenAI. A weekly cap there limits what a leaked sign-in could spend.</p>
     </div>
 
-    <p class="help small">The small model handles quick jobs: concept tags and one-line takeaways. Switching the main model re-sends the article on your next question.</p>
+    <p class="help small">Tags and takeaways are short jobs, so a smaller, cheaper model does fine there. Switching the replies model re-sends the article on your next question.</p>
     <div class="row">
       <button class="btn" id="test">Test connection</button>
       <span class="status" id="conn" role="status"></span>
