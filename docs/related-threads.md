@@ -5,12 +5,16 @@ Before each reply, Margin looks for threads you wrote on other pages that would 
 ## The pipeline
 
 ```
-tag the thread ─▶ shortlist (≤10, shared tag) ─▶ Jev scores all in one request ─▶ top 3 ≥ 1 ─▶ re-read fresh ─▶ inject
+tag the thread ─▶ shortlist (≤20, shared tag) ─▶ Jev scores all in one request ─▶ top 3 ≥ 0.75 ─▶ re-read fresh ─▶ inject
 ```
 
 ### 0. Tags
 
-A thread is tagged from its first question, before its first reply (`tagThread` in `background.js`). The small model names 2–4 concepts the question is about, reusing existing tags where it can (`CONCEPTS_SYS`). Tags are what connect threads. Without them a thread has no related threads. Page Q&A threads are never tagged, so they get none.
+A thread is tagged from its first question, before its first reply (`tagThread` in `background.js`). The small model names 3–5 tags the question is about, reusing existing tags where it can (`CONCEPTS_SYS`): 1 or 2 specific ones (`MVCC`, `Holland Park`) and 2 or 3 broader subjects one step up (`Databases`, `London parks`, `Plant protein`), never the kind of request (`Recipes`) and never so broad they match everything (`Travel`). Tags are what connect threads. Without them a thread has no related threads. Page Q&A threads are never tagged, so they get none.
+
+Tags are generous on purpose: they decide which threads *can* be considered (recall), and Jev decides which ones help this question (precision). A thread missing from the shortlist can't be recovered later; a weak one is dropped by Jev or ignored by the answering model.
+
+**Tags follow the conversation, at no extra call.** Every reply on a passage thread is sent with the thread's current tags and the known tags (`tagsNote`). When the latest message moves to a topic those don't cover, the answering model adds a last line `[[tags: Art museums | London]]`; Margin hides it while it streams, cuts it before saving (`replyTags` in `graph.js`) and adds the tags to the thread (`mergeTags`: only grows, no duplicates, at most 8). New tags count from the next reply on: this reply's related threads were picked before it was written.
 
 A highlight doesn't need a conversation. **Save without asking** (the bookmark on a new comment card) saves the highlight without calling the answering model. With the box empty it is a kept highlight, tagged from the passage itself. With text typed, the text is saved as a note, and the highlight is tagged from the passage and the note, so the note steers which later questions it matches. Either way, the highlight can later be found and sent with replies on other pages, like any thread. (There is no separate note mode any more. Notes saved before this change still display and are used.)
 
@@ -20,7 +24,7 @@ A highlight doesn't need a conversation. **Save without asking** (the bookmark o
 
 - Keeps threads on **other pages** that share at least one tag with the current thread.
 - Ranks them by `4 × shared tags` plus a weighted word overlap. Words from the question count 3×, from recent messages 2×, and from the passage and context 1×. Words that are rare among the tag-sharing threads score higher.
-- Keeps the top **10**.
+- Keeps the top **20**. Broad tags bring in more threads than this; ranking puts the ones that also share a specific tag first.
 
 The word overlap compares against each candidate's **whole** text: page title, passage, context, tags, approved takeaway and every message. It treats that text as a bag of words.
 
@@ -44,7 +48,7 @@ Jev never sees a candidate's surrounding context, earlier messages or tags. It j
 
 ### 3. Pick
 
-- Candidates scoring at least **`MIN_SCORE` (1, useful background)** are kept, best first, up to **3**. They get the refs `R1`–`R3` in that order.
+- Candidates scoring at least **`MIN_SCORE` (0.75, a little under useful background)** are kept, best first, up to **3**. They get the refs `R1`–`R3` in that order.
 - Jev may keep none. Then the reply has no related context.
 - **Fallback:** with no TypeSafe key, or if the Jev call fails or leaves a candidate unscored, the shortlist's top 3 are used. A reply never fails because of Jev.
 - **Why not the ChatGPT model as the judge?** Tried and dropped (Oct 2026). Plan usage returns only the chosen token's logprob (no `top_logprobs`), which is enough for a yes/no: P(yes) = e^logprob after "yes", 1 − e^logprob after "no". On the same 43 real pairs, run twice: Jev's scores moved 0.04 on average (1 flip across the cut-off); Luna answering every candidate in one call moved 0.38 (12 flips), because each answer after the first is conditioned on words already sampled; one call per candidate, with the answer as the first token, moved 0.13 (3 flips) at one call per candidate, and agreed with Jev's picks in 2 of 12 replies. So without a key, the shortlist's top 3 it is.
@@ -78,11 +82,11 @@ Each reply stores which threads it was given, as `{urlKey, id}` pairs in `relate
 
 ## Tuning
 
-- `MIN_SCORE` (1, the "useful background" level) is an untuned starting point. Check it against the synthetic pairs (`node test/eval-related.mjs` with no file) and your own threads:
+- `MIN_SCORE` (0.75) was lowered from 1 by eye (Oct 2026): on 33 real pairs, 7 scored 0.8–1.0, so a cut at 1 flipped from run to run (a Holland Park highlight scored 1.01 in the eval and just under 1 in the real reply). A missed thread loses the memory; an extra one costs input and is ignored by the answering model. It is not yet set on labels. Check it against the synthetic pairs (`node test/eval-related.mjs` with no file) and your own threads:
   ```sh
   TYPESAFE_API_KEY=… node test/eval-related.mjs margin-export.json                       # writes related-labels.json
   TYPESAFE_API_KEY=… node test/eval-related.mjs margin-export.json related-labels.json   # after marking each "helps"
   ```
-- Constants: shortlist size `max` in `findCandidates` (10); `MAX_RELATED` (3), `MIN_SCORE` (1) and `CONTEXT_BYTES` (9,000) in `retrieval.js`.
+- Constants: shortlist size `max` in `findCandidates` (20); `MAX_TAGS` (8) in `graph.js`; `MAX_RELATED` (3), `MIN_SCORE` (0.75) and `CONTEXT_BYTES` (9,000) in `retrieval.js`.
 
 What is sent to TypeSafe and the model, and what is stored: [privacy.md](privacy.md).

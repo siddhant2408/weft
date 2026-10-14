@@ -24,7 +24,7 @@ export function indexMatches(entry, query) {
 
 // Threads on other pages sharing at least one of the query's tags, best lexical match first. A shortlist, not a
 // relevance decision: Jev scores each one (retrieval.js pickRelated) and may reject all.
-export function findCandidates(index, query, max = 10) {
+export function findCandidates(index, query, max = 20) {
   const mine = new Set((query.concepts || []).map(norm));
   if (!mine.size) return [];
   const weighted = new Map();

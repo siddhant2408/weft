@@ -19,7 +19,7 @@ let picked=await pickRelated({query,candidates,judge:judgeWith({'Postgres a':0.2
 assert.equal(judged.length,1,'one request for the whole shortlist'); assert.deepEqual(Object.keys(judged[0].q),['c0','c1','c2','c3']);
 assert.deepEqual(judged[0].q.c3,helps(3));
 assert.deepEqual(picked.map(c=>[c.id,c.ref]),[['b','R1'],['c','R2'],['d','R3']],'best first, at or above the cut-off, refs in that order');
-picked=await pickRelated({query,candidates,judge:judgeWith({'Postgres a':0.1,'Postgres b':0.6,'Postgres c':0.2,'Postgres d':0.9})});
+picked=await pickRelated({query,candidates,judge:judgeWith({'Postgres a':0.1,'Postgres b':0.6,'Postgres c':0.2,'Postgres d':MIN_SCORE-0.01})});
 assert.deepEqual(picked,[],'Jev can reject every candidate');
 // No key, a failed call or a malformed or partial answer: the shortlist's own top 3.
 for (const judge of [async()=>({ok:false,code:'NO_KEY'}),async()=>({ok:false,code:'NETWORK'}),async()=>({ok:true,answers:{}}),async()=>({ok:true,answers:{c0:{score:2},c1:{score:2}}})]) {

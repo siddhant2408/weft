@@ -16,6 +16,21 @@ export function parseConcepts(text) {
   return out;
 }
 
+// A reply may end with [[tags: A | B]] naming topics the conversation moved to (TAGS_NOTE in background.js).
+// Returns the reply without that line, and the tags. Anywhere in the text, so a following [[need-page]] still ends it.
+const TAGS_LINE = /\s*\[\[tags:([^\]]*)\]\]/gi;
+export function replyTags(text) {
+  const tags = [...text.matchAll(TAGS_LINE)].flatMap((m) => parseConcepts(m[1].split(/[|,]/).join('\n')));
+  return { text: text.replace(TAGS_LINE, '').trim(), tags: tags.filter((t) => norm(t) !== 'none') };
+}
+
+// A thread's tags only grow: new ones go after the old, duplicates (by norm) dropped, at most `max` in all.
+export const MAX_TAGS = 8;
+export function mergeTags(old = [], add = [], max = MAX_TAGS) {
+  const seen = new Set(old.map(norm));
+  return [...old, ...add.filter((t) => { const k = norm(t); return k && !seen.has(k) && seen.add(k); })].slice(0, Math.max(max, old.length));
+}
+
 // Concepts already in use, most used first: given to the model so it reuses them instead of inventing variants.
 export function vocabulary(pages, max = 100) {
   const counts = new Map();
