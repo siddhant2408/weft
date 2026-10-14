@@ -64,7 +64,7 @@ The picked threads are re-read from storage, so they are current, and formatted 
 | `Recent conversation excerpts` | the last 4 messages, labelled "Reader question", "Reader note" or "Prior AI answer (not verified evidence)" | 800 chars each |
 | `Kept highlight` | instead of the conversation, for a highlight kept without comment | — |
 
-Each thread is capped at 2,900 bytes: the longest field is halved until it fits, and the cut is marked `… [truncated]`. The whole block stays under `CONTEXT_BYTES` (9,000). Not included: messages older than the last 4, tags, and the other page's article, summary and reader notes.
+Each thread is capped at 2,900 bytes: the longest field is halved until it fits, and the cut is marked `… [truncated]`. The whole block stays under `CONTEXT_BYTES` (9,000) only because 3 × 2,900 fits: nothing enforces it at runtime (a test checks it), so raising `MAX_RELATED` grows the block past it. Not included: messages older than the last 4, tags, and the other page's article, summary and reader notes.
 
 If a picked thread was deleted in the meantime, the reply fails with `SOURCE_MISSING` and can be retried.
 
