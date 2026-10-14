@@ -1,5 +1,5 @@
-// Opt-in eval for picking related threads: Jev's noul on labelled (current thread, candidate) pairs, and how each
-// cut-off would do. Spends TypeSafe credits (one call per pair). No Chrome or extension storage required.
+// Opt-in eval for picking related threads: Jev's score (0-2) on labelled (current thread, candidate) pairs, and how each
+// cut-off would do. Spends TypeSafe credits (one call per current thread, scoring all its candidates, as in replies). No Chrome or extension storage required.
 //   TYPESAFE_API_KEY=… node test/eval-related.mjs                      built-in synthetic pairs
 //   TYPESAFE_API_KEY=… node test/eval-related.mjs export.json          real threads: scores each tagged thread's shortlist
 //     and writes related-labels.json; set each "helps" to true/false, then
@@ -10,7 +10,7 @@ const apiKey = process.env.TYPESAFE_API_KEY;
 if (!apiKey) { console.error('Set TYPESAFE_API_KEY'); process.exit(1); }
 globalThis.chrome = { storage: { local: { get: async () => ({ settings: { typesafe: { apiKey } } }) } } };
 const { judge } = await import('../providers.js');
-const { judgeState, HELPS, MIN_NOUL } = await import('../retrieval.js');
+const { scoreRelated, MIN_SCORE } = await import('../retrieval.js');
 const { buildIndex, findCandidates, threadKey } = await import('../thread-index.js');
 
 const thread = (title, exact, question, lastAnswer = '', approvedTakeaway = '') => ({ title, exact, question, lastAnswer, approvedTakeaway });
@@ -60,21 +60,24 @@ if (exportFile) {
 }
 
 const cell = (s) => String(s ?? '').replace(/\s+/g, ' ').replace(/\|/g, '\\|').slice(0, 90);
-console.log(`# Related-thread eval: ${pairs.length} pairs\n\n| pair | question | candidate | helps | noul |\n|---|---|---|---|---|`);
-for (const p of pairs) {
-  const res = await judge(judgeState(p.query, p.candidate), { helps: HELPS });
-  if (!res.ok) { console.error(res); process.exit(1); }
-  p.noul = res.answers.helps.noul;
-  console.log(`| ${cell(p.name)} | ${cell(p.query.question)} | ${cell(p.candidate.question || p.candidate.exact)} | ${p.helps ?? '?'} | ${p.noul.toFixed(2)} |`);
+console.log(`# Related-thread eval: ${pairs.length} pairs\n\n| pair | question | candidate | helps | score |\n|---|---|---|---|---|`);
+// Pairs with the same current thread share one request, as the extension scores a reply's whole shortlist at once.
+for (const group of Map.groupBy(pairs, (p) => JSON.stringify(p.query)).values()) {
+  let why = 'a candidate left unscored';
+  const logged = async (...args) => { const r = await judge(...args); if (!r.ok) why = `${r.code}: ${r.detail}`; return r; };
+  const scores = await scoreRelated({ query: group[0].query, candidates: group.map((p) => p.candidate), judge: logged });
+  if (!scores) { console.error(`Jev failed on "${group[0].query.question}": ${why}`); process.exit(1); }
+  group.forEach((p, i) => { p.score = scores[i]; });
 }
+for (const p of pairs) console.log(`| ${cell(p.name)} | ${cell(p.query.question)} | ${cell(p.candidate.question || p.candidate.exact)} | ${p.helps ?? '?'} | ${p.score.toFixed(2)} |`);
 if (pairs.some((p) => p.helps === null)) {
-  writeFileSync('related-labels.json', JSON.stringify(pairs.map((p) => ({ ...p.label, noul: Number(p.noul.toFixed(2)) })), null, 2));
+  writeFileSync('related-labels.json', JSON.stringify(pairs.map((p) => ({ ...p.label, score: Number(p.score.toFixed(2)) })), null, 2));
   console.log('\nWrote related-labels.json: set each "helps" to true or false, then rerun with it as the second argument.');
   process.exit(0);
 }
-console.log(`\n## Cut-offs (current: ${MIN_NOUL})\n\n| cut-off | precision | recall | wrongly injected | missed |\n|---|---|---|---|---|`);
-for (const t of [0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8]) {
-  const tp = pairs.filter((p) => p.helps && p.noul >= t).length, fp = pairs.filter((p) => !p.helps && p.noul >= t).length;
+console.log(`\n## Cut-offs (current: ${MIN_SCORE})\n\n| cut-off | precision | recall | wrongly injected | missed |\n|---|---|---|---|---|`);
+for (const t of [0.5, 0.75, 1, 1.25, 1.5, 1.75]) {
+  const tp = pairs.filter((p) => p.helps && p.score >= t).length, fp = pairs.filter((p) => !p.helps && p.score >= t).length;
   const pos = pairs.filter((p) => p.helps).length;
   console.log(`| ${t} | ${tp + fp ? Math.round((100 * tp) / (tp + fp)) + '%' : '—'} | ${pos ? Math.round((100 * tp) / pos) + '%' : '—'} | ${fp} | ${pos - tp} |`);
 }

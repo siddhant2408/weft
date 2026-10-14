@@ -5,7 +5,7 @@ Before each reply, Margin looks for threads you wrote on other pages that would 
 ## The pipeline
 
 ```
-tag the thread ─▶ shortlist (≤10, shared tag) ─▶ Jev scores each ─▶ top 3 ≥ 0.4 ─▶ re-read fresh ─▶ inject
+tag the thread ─▶ shortlist (≤10, shared tag) ─▶ Jev scores all in one request ─▶ top 3 ≥ 1 ─▶ re-read fresh ─▶ inject
 ```
 
 ### 0. Tags
@@ -26,9 +26,9 @@ The word overlap compares against each candidate's **whole** text: page title, p
 
 ### 2. Scoring (Jev)
 
-`pickRelated` in `retrieval.js` sends each candidate to TypeSafe's Jev model as a separate request, all in parallel. The request is one yes/no question (`HELPS`): *would bringing this candidate into the answer materially improve it?* Jev returns the probability of yes.
+`pickRelated` in `retrieval.js` sends the whole shortlist to TypeSafe's Jev model in **one request**. The request asks one Score question per candidate (`helps(i)`, pointing at `candidates[i]`): *how much would bringing this candidate into the answer improve it?* Each Score has three levels (`HELPS_LEVELS`): 0 does not help (only shares a topic, the passage alone answers it, or the reader asked not to bring in other material), 1 useful background, 2 bears directly on the question. Jev answers each question on its own and returns a score from 0 to 2, the level numbers weighted by their probabilities.
 
-Each request holds a short summary of both sides (`judgeState`):
+The request holds a short summary of the current thread and of every candidate (`judgeState`):
 
 | Current thread | Candidate thread |
 |---|---|
@@ -44,9 +44,10 @@ Jev never sees a candidate's surrounding context, earlier messages or tags. It j
 
 ### 3. Pick
 
-- Candidates scoring at least **`MIN_NOUL` (0.4)** are kept, best first, up to **3**. They get the refs `R1`–`R3` in that order.
+- Candidates scoring at least **`MIN_SCORE` (1, useful background)** are kept, best first, up to **3**. They get the refs `R1`–`R3` in that order.
 - Jev may keep none. Then the reply has no related context.
-- **Fallback:** with no TypeSafe key, or if any Jev call fails, the shortlist's top 3 are used. A reply never fails because of Jev.
+- **Fallback:** with no TypeSafe key, or if the Jev call fails or leaves a candidate unscored, the shortlist's top 3 are used. A reply never fails because of Jev.
+- **Why not the ChatGPT model as the judge?** Tried and dropped (Oct 2026). Plan usage returns only the chosen token's logprob (no `top_logprobs`), which is enough for a yes/no: P(yes) = e^logprob after "yes", 1 − e^logprob after "no". On the same 43 real pairs, run twice: Jev's scores moved 0.04 on average (1 flip across the cut-off); Luna answering every candidate in one call moved 0.38 (12 flips), because each answer after the first is conditioned on words already sampled; one call per candidate, with the answer as the first token, moved 0.13 (3 flips) at one call per candidate, and agreed with Jev's picks in 2 of 12 replies. So without a key, the shortlist's top 3 it is.
 
 ### 4. Inject
 
@@ -77,11 +78,11 @@ Each reply stores which threads it was given, as `{urlKey, id}` pairs in `relate
 
 ## Tuning
 
-- `MIN_NOUL` was set from 12 synthetic pairs, where every helpful pair scored ≥ 0.47 and every unhelpful one ≤ 0.34. Check it against your own threads:
+- `MIN_SCORE` (1, the "useful background" level) is an untuned starting point. Check it against the synthetic pairs (`node test/eval-related.mjs` with no file) and your own threads:
   ```sh
   TYPESAFE_API_KEY=… node test/eval-related.mjs margin-export.json                       # writes related-labels.json
   TYPESAFE_API_KEY=… node test/eval-related.mjs margin-export.json related-labels.json   # after marking each "helps"
   ```
-- Constants: shortlist size `max` in `findCandidates` (10); `MAX_RELATED` (3), `MIN_NOUL` (0.4) and `CONTEXT_BYTES` (9,000) in `retrieval.js`.
+- Constants: shortlist size `max` in `findCandidates` (10); `MAX_RELATED` (3), `MIN_SCORE` (1) and `CONTEXT_BYTES` (9,000) in `retrieval.js`.
 
 What is sent to TypeSafe and the model, and what is stored: [privacy.md](privacy.md).

@@ -4,6 +4,7 @@
 //   MODEL=… SMALL_MODEL=…  the two models compared (both default to openrouter/free, which varies per call: set them)
 //   ALT_PROMPT=file.txt     also runs both models with this system prompt in place of CONCEPTS_SYS
 //   LIMIT=20                how many threads, newest first
+//   QUICK=1                 the small model runs with reasoning off (ChatGPT): MODEL=SMALL_MODEL=gpt-6-luna QUICK=1 compares Luna with and without reasoning
 // Each thread is tagged as production tags it: transcript up to its first question (before the first reply), known concepts from every other thread.
 import { readFileSync } from 'node:fs';
 import { norm, parseConcepts, vocabulary } from '../graph.js';
@@ -30,7 +31,7 @@ const count = (name, tags, known) => {
 const cell = (s) => s.replace(/\s+/g, ' ').replace(/\|/g, '\\|');
 const clip = (s, n) => (s.length > n ? s.slice(0, n - 1) + '…' : s);
 
-console.log(`# Tag eval: ${items.length} threads, small=${models.smallModel || 'default'}, main=${models.model || 'default'}\n`);
+console.log(`# Tag eval: ${items.length} threads, small=${models.smallModel || 'default'}${env.QUICK ? ' (reasoning off)' : ''}, main=${models.model || 'default'}\n`);
 for (const [i, {page, h}] of items.entries()) {
   // vocabulary as it would be without this thread's own tags (a fair stand-in for "at tag time")
   const known = vocabulary(pages.map((p) => ({...p, highlights: p.highlights.filter((x) => x !== h)})));
@@ -39,7 +40,7 @@ for (const [i, {page, h}] of items.entries()) {
   const row = {stored: h.concepts || []};
   count('stored', row.stored, knownKeys);
   for (const v of variants) {
-    const res = await ask({small: v.small, system: v.system,
+    const res = await ask({small: v.small, quick: v.small && !!env.QUICK, system: v.system,
       notes: known.length ? `<known_concepts>\n${known.join('\n')}\n</known_concepts>` : '', prompt: conceptsPrompt(first)});
     if (!res.ok && FATAL.includes(res.code)) { console.error(res); process.exit(1); }
     row[v.name] = res.ok ? parseConcepts(res.text) : [];

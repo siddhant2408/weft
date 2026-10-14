@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-let state = {}, session = {}, listener, calls = [], tagPrompts = [], jevCalls = [], noul = 0.9, holdJev = false, tagReply = '';
+let state = {}, session = {}, listener, calls = [], tagPrompts = [], jevCalls = [], score = 1.8, holdJev = false, tagReply = '';
 const clone = structuredClone;
 const storage = obj => ({get: async k => k == null ? clone(obj) : Object.fromEntries((Array.isArray(k) ? k : [k]).filter(x => x in obj).map(x => [x, clone(obj[x])])),
  set: async data => Object.assign(obj, clone(data)), remove: async ks => {for (const k of Array.isArray(ks) ? ks : [ks]) delete obj[k];}, setAccessLevel: async () => {}});
@@ -7,16 +7,17 @@ globalThis.chrome = {storage: {local: storage(state), session: storage(session)}
  runtime: {id: 'test', onMessage: {addListener: fn => listener = fn}, sendNativeMessage: (host, req, cb) => setTimeout(() => cb({ok: true}))},
  tabs: {onUpdated: {addListener() {}}, sendMessage: async () => ({title: 'Article', text: 'article'})}};
 // Fake OpenRouter: each model call waits in `calls` until the test finishes it with the reply text. Tagging replies `tagReply`.
-// Fake TypeSafe: answers `noul` (or a function of the candidate), or waits in `jevCalls` while `holdJev`.
+// Fake TypeSafe: scores every candidate `score` (or a function of the candidate), or waits in `jevCalls` while `holdJev`.
 const sse = text => new Response(`data: ${JSON.stringify({choices: [{delta: {content: text}}]})}\n\ndata: [DONE]\n\n`);
-const jevReply = (body, n) => typeof n === 'number' ? Response.json({answers: {helps: {type: 'noul', noul: n}}}) : new Response('down', {status: 500});
+const jevReply = (body, n) => n == null ? new Response('down', {status: 500})
+ : Response.json({answers: Object.fromEntries(body.state.candidates.map((c, i) => [`c${i}`, {type: 'score', score: typeof n === 'function' ? n(c) : n}]))});
 globalThis.fetch = async (url, init) => {
  const body = JSON.parse(init.body);
  if (String(url).startsWith('https://api.typesafe.ai/')) {
   const call = {url, body, headers: init.headers};
   if (holdJev) return new Promise(resolve => jevCalls.push({...call, finish: n => resolve(jevReply(body, n))}));
   jevCalls.push(call);
-  return jevReply(body, typeof noul === 'function' ? noul(body.state.candidate) : noul);
+  return jevReply(body, score);
  }
  const req = {system: body.messages[0].content, prompt: body.messages[1].content, model: body.model};
  if (req.system.startsWith('You tag')) return (tagPrompts.push(req.prompt), sse(tagReply));
@@ -27,7 +28,7 @@ const msg = data => new Promise(resolve => listener(data, {id: 'test', tab: {id:
 const wait = async fn => {for (let i = 0; i < 100; i++) {if (fn()) return; await new Promise(r => setTimeout(r, 1));} throw Error('timeout');};
 const key = 'https://current.test', other = 'https://old.test';
 function seed() {
- for (const obj of [state, session]) for (const k in obj) delete obj[k]; calls = []; tagPrompts = []; jevCalls = []; noul = 0.9; holdJev = false; tagReply = '';
+ for (const obj of [state, session]) for (const k in obj) delete obj[k]; calls = []; tagPrompts = []; jevCalls = []; score = 1.8; holdJev = false; tagReply = '';
  state.settings = {openrouter: {apiKey: 'k', model: 'main', smallModel: 'small'}, typesafe: {apiKey: 'ts-key'}};
  state.conceptsVersion = 2;
  state['page:' + key] = {urlKey: key, title: 'Current', summary: {text: 'gist'}, highlights: [{id: 'h', exact: 'MVCC', context: 'context', concepts: ['MVCC'], messages: [], status: 'open'}]};
@@ -37,7 +38,7 @@ const send = text => msg({type: 'thread.send', urlKey: key, id: 'h', text: text 
 const lastReply = () => state['page:' + key].highlights[0].messages.at(-1);
 const run = async (name, fn) => {seed(); await fn(); console.log('PASS', name);};
 await run('Jev rejecting every candidate gives one plain answer with no cross-page context', async () => {
- noul = 0.1;
+ score = 0.1;
  const pending = send(); await wait(() => calls.length === 1);
  assert.equal(jevCalls.length, 1);
  assert.doesNotMatch(calls[0].req.system, /SOURCE_SECRET|ANSWER_SECRET|<related_threads>\n/);
@@ -48,36 +49,36 @@ await run('Jev rejecting every candidate gives one plain answer with no cross-pa
  assert.deepEqual(session, {});
  assert.deepEqual((await msg({type: 'thread.connections', urlKey: key, id: 'h'})).links, [], 'the card shows what the reply was given');
 });
-await run('Jev sees one candidate per request; the picked source is read fresh and the cited reply saved', async () => {
+await run('Jev scores the shortlist in one request; the picked source is read fresh and the cited reply saved', async () => {
  holdJev = true;
  const pending = send(); await wait(() => jevCalls.length === 1);
  const j = jevCalls[0];
  assert.equal(j.body.model, 'jev-latest'); assert.equal(j.headers.authorization, 'Bearer ts-key');
- assert.equal(j.body.state.candidate.passage, 'SOURCE_SECRET'); assert.equal(j.body.state.current.question, 'Why does this matter?');
- assert.equal(j.body.questions.helps.type, 'noul');
+ assert.equal(j.body.state.candidates[0].passage, 'SOURCE_SECRET'); assert.equal(j.body.state.current.question, 'Why does this matter?');
+ assert.equal(j.body.questions.c0.type, 'score');
  assert.equal(session['phase:h'], 'Finding relevant context…');
  state['page:' + other].highlights[0].messages.at(-1).content = 'FRESH_SOURCE_ANSWER';
- j.finish(0.8); await wait(() => calls.length === 1);
+ j.finish(1.8); await wait(() => calls.length === 1);
  assert.equal(session['phase:h'], 'Answering…');
  assert.match(calls[0].req.system, /FRESH_SOURCE_ANSWER|Source passage|Reader-approved takeaway/);
  assert.doesNotMatch(calls[0].req.system, /ANSWER_SECRET/);
  calls[0].finish('Postgres differs [R1].'); assert.equal((await pending).ok, true);
  assert.deepEqual(lastReply().refs, {1: {urlKey: other, exact: 'SOURCE_SECRET', title: 'Postgres'}});
  assert.deepEqual(lastReply().related, [{urlKey: other, id: 'old'}]);
- assert.doesNotMatch(JSON.stringify(state['page:' + key]), /FRESH_SOURCE_ANSWER|noul/);
+ assert.doesNotMatch(JSON.stringify(state['page:' + key]), /FRESH_SOURCE_ANSWER|score/);
  assert.deepEqual((await msg({type: 'thread.connections', urlKey: key, id: 'h'})).links.map(l => [l.id, l.shared]), [['old', ['MVCC']]]);
  assert.deepEqual(session, {});
 });
 await run('refs follow Jev\'s order, best first, and cap at three', async () => {
  for (const n of [2, 3, 4]) state['page:' + other].highlights.push({...clone(state['page:' + other].highlights[0]), id: 'old' + n, exact: 'SOURCE_' + n});
- noul = c => ({SOURCE_SECRET: 0.6, SOURCE_2: 0.2, SOURCE_3: 0.95, SOURCE_4: 0.7})[c.passage];
+ score = c => ({SOURCE_SECRET: 1.2, SOURCE_2: 0.4, SOURCE_3: 1.9, SOURCE_4: 1.4})[c.passage];
  const pending = send(); await wait(() => calls.length === 1);
- assert.equal(jevCalls.length, 4);
+ assert.equal(jevCalls.length, 1); assert.equal(jevCalls[0].body.state.candidates.length, 4);
  calls[0].finish('Best [R1], third [R3].'); await pending;
  assert.deepEqual(lastReply().related.map(r => r.id), ['old3', 'old4', 'old']);
  assert.equal(lastReply().refs[1].exact, 'SOURCE_3'); assert.equal(lastReply().refs[3].exact, 'SOURCE_SECRET');
 });
-for (const [name, setup] of [['no TypeSafe key', () => { delete state.settings.typesafe; }], ['a failed Jev call', () => { noul = null; }]]) {
+for (const [name, setup] of [['no TypeSafe key', () => { delete state.settings.typesafe; }], ['a failed Jev call', () => { score = null; }]]) {
  await run(`${name} falls back to the shortlist's top three`, async () => {
   setup();
   const pending = send(); await wait(() => calls.length === 1);
@@ -107,7 +108,7 @@ await run('a highlight kept without comment is tagged from its passage, then fou
  assert.deepEqual(state['page:' + other].highlights[0].messages, []);
  assert.match(tagPrompts[0], /KEPT_PASSAGE[\s\S]*kept this highlight without commenting/);
  const pending = send(); await wait(() => calls.length === 1);
- assert.match(jevCalls[0].body.state.candidate.note, /without discussing/);
+ assert.match(jevCalls[0].body.state.candidates[0].note, /without discussing/);
  assert.match(calls[0].req.system, /KEPT_PASSAGE[\s\S]*Kept highlight/);
  assert.doesNotMatch(calls[0].req.system, /Recent conversation excerpts/);
  calls[0].finish('Your kept passage [R1].'); await pending;
@@ -118,7 +119,7 @@ await run('a note on an untagged thread tags it, and Jev sees the notes', async 
  await msg({type: 'thread.send', urlKey: other, id: 'old', text: 'NOTE_TEXT: vacuum is lazy', ask: false});
  await wait(() => state['page:' + other].highlights[0].concepts);
  const pending = send(); await wait(() => calls.length === 1);
- assert.match(jevCalls[0].body.state.candidate.reader_notes, /NOTE_TEXT/); assert.equal(jevCalls[0].body.state.candidate.note, undefined);
+ assert.match(jevCalls[0].body.state.candidates[0].reader_notes, /NOTE_TEXT/); assert.equal(jevCalls[0].body.state.candidates[0].note, undefined);
  calls[0].finish('Ok.'); await pending;
 });
 await run('replies are saved without leading or trailing blank lines', async () => {
@@ -135,7 +136,7 @@ await run('a source deleted while Jev scores fails instead of using a stale snap
  holdJev = true;
  const pending = send(); await wait(() => jevCalls.length === 1);
  await msg({type: 'page.delete', urlKey: other});
- jevCalls[0].finish(0.9); assert.equal((await pending).error.code, 'SOURCE_MISSING');
+ jevCalls[0].finish(1.8); assert.equal((await pending).error.code, 'SOURCE_MISSING');
  assert.equal(calls.length, 0); assert.deepEqual(session, {});
 });
 for (const [type, urlKey, id] of [['page.delete', key], ['highlight.delete', key, 'h'], ['data.deleteAll', key], ['page.delete', other], ['highlight.delete', other, 'old']]) {

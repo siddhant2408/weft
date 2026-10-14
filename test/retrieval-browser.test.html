@@ -36,7 +36,8 @@ globalThis.chrome = {storage: {local: storage(state, 'local'), session: storage(
 const jevCalls = [];
 const realFetch = fetch, sse = text => new Response(`data: ${JSON.stringify({choices: [{delta: {content: text}}]})}\n\ndata: [DONE]\n\n`);
 globalThis.fetch = (url, init) => {
- if (String(url).startsWith('https://api.typesafe.ai/')) return new Promise(resolve => jevCalls.push({finish: noul => resolve(Response.json({answers: {helps: {type: 'noul', noul}}}))}));
+ if (String(url).startsWith('https://api.typesafe.ai/')) return new Promise(resolve => jevCalls.push({finish: score => resolve(Response.json({answers:
+  Object.fromEntries(JSON.parse(init.body).state.candidates.map((c, i) => [`c${i}`, {type: 'score', score}]))}))}));
  if (!String(url).startsWith('https://openrouter.ai/')) return realFetch(url, init);
  const body = JSON.parse(init.body), req = {system: body.messages[0].content, model: body.model};
  if (req.system.startsWith('You tag')) return Promise.resolve(sse(''));
@@ -55,7 +56,7 @@ try {
  root.querySelector('textarea').dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter', bubbles: true}));
  await wait(() => jevCalls.length === 1 && root.textContent.includes('Finding relevant context…'));
  check(root.querySelector('textarea').disabled, 'Composer not locked during retrieval');
- jevCalls[0].finish(0.9);
+ jevCalls[0].finish(1.8);
  await wait(() => calls.length === 1 && root.textContent.includes('Answering…'));
  calls[0].finish('Compared with Postgres [R1].');
  await wait(() => root.querySelector('.body a'));

@@ -108,13 +108,22 @@ function planError(status, body) {
 }
 
 // Responses API rules for plan usage: store false, stream true, system text as `instructions`, no system items,
-// no temperature or max_output_tokens. Prompt caching is automatic.
-async function chatgpt({ system, notes, prompt, schema }, model, onText) {
+// no temperature, max_output_tokens, top_logprobs or service_tier (fast mode). Prompt caching is automatic.
+// req.quick: reasoning effort "none", the plan's only speed setting, for calls a reader waits on that need no thinking
+// (not tags: they run after the reply and decide what related threads can find). A model that rejects it is retried without.
+async function chatgpt(req, model, onText, quick = !!req.quick) {
+  const { system, notes, prompt, schema } = req;
   const t = await accessToken();
   if (!t.ok) return t;
   const body = { model, instructions: notes ? `${system}\n\n${notes}` : system, input: [{ role: 'user', content: prompt }], store: false, stream: true };
   if (schema) body.text = { format: { type: 'json_schema', name: schema.name, strict: true, schema: schema.schema } };
-  return streamRequest(`${RESOURCE}/responses`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${t.token}` }, body: JSON.stringify(body) }, ({ data }) => {
+  if (quick) body.reasoning = { effort: 'none' };
+  const res = await chatgptStream(body, t.token, onText);
+  return quick && res.code === 'API_ERROR' && /reasoning|effort/i.test(res.detail) ? chatgpt(req, model, onText, false) : res;
+}
+
+function chatgptStream(body, token, onText) {
+  return streamRequest(`${RESOURCE}/responses`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` }, body: JSON.stringify(body) }, ({ data }) => {
     const j = JSON.parse(data);
     if (j.type === 'response.output_text.delta') return j.delta;
     if (j.type === 'response.completed') return null;
@@ -144,7 +153,7 @@ export const replierName = (s) => {
   return m === 'openrouter/free' ? 'AI' : m.split('/').pop();
 };
 
-// Jev (TypeSafe System One): typed judgments over `state`, e.g. a noul (probability of yes) per question.
+// Jev (TypeSafe System One): typed judgments over `state`, one answer per question, e.g. a score (0 to the top level) per question.
 // Not streamed. settings.typesafe = {apiKey}; without one, callers fall back to code (docs.typesafe.ai/api).
 export const JUDGE_MODEL = 'jev-latest';
 export async function judge(state, questions) {
@@ -161,7 +170,7 @@ export async function judge(state, questions) {
   }
 }
 
-// onText(fullTextSoFar) is called while streaming. req.small: a short job that goes to the small model.
+// onText(fullTextSoFar) is called while streaming. req.small: a short job that goes to the small model. req.quick: see chatgpt().
 export async function ask(req, onText) {
   const s = await getSettings();
   if (s.provider === 'chatgpt') {

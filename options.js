@@ -1,5 +1,5 @@
 import { getSettings, DEFAULT_MODEL, DEFAULT_SMALL_MODEL } from './providers.js';
-import { getAuth } from './chatgpt.js';
+import { getAuth, defaultModel } from './chatgpt.js';
 
 const $ = (id) => document.getElementById(id);
 const bg = (msg) => chrome.runtime.sendMessage(msg).catch((e) => ({ error: { code: 'INTERNAL', hint: String(e) } }));
@@ -41,7 +41,7 @@ async function loadChatGPT(chosen) {
   if (!res?.ok) return setStatus('g-who', res?.error?.hint || 'Couldn\'t load your models', 'err');
   for (const [id, value] of [['g-model', chosen.model], ['g-small', chosen.smallModel]]) {
     $(id).replaceChildren(...res.models.map((m) => Object.assign(document.createElement('option'), { value: m.slug, textContent: m.name })));
-    $(id).value = res.models.some((m) => m.slug === value) ? value : res.models[0]?.slug || '';
+    $(id).value = res.models.some((m) => m.slug === value) ? value : defaultModel(res.models) || '';
   }
   $('g-models').hidden = false;
 }
