@@ -153,7 +153,7 @@ export const replierName = (s) => {
   return m === 'openrouter/free' ? 'AI' : m.split('/').pop();
 };
 
-// Jev (TypeSafe System One): typed judgments over `state`, e.g. a noul (probability of yes) per question.
+// Jev (TypeSafe System One): typed judgments over `state`, one answer per question, e.g. a score (0 to the top level) per question.
 // Not streamed. settings.typesafe = {apiKey}; without one, callers fall back to code (docs.typesafe.ai/api).
 export const JUDGE_MODEL = 'jev-latest';
 export async function judge(state, questions) {
