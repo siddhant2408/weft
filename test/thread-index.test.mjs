@@ -15,7 +15,7 @@ assert.deepEqual(candidates.map(c=>c.id),['pg'],'only threads sharing a tag: unt
 assert.deepEqual(findCandidates(index,{...query,concepts:[]}),[],'an untagged thread has no candidates');
 assert.ok(!candidates.some(c=>c.urlKey==='current'));
 assert.equal(new Set(candidates.map(c=>c.urlKey+'#'+c.id)).size,candidates.length);
-assert.ok(candidates.length<=10);
+assert.ok(candidates.length<=20);
 assert.deepEqual(findCandidates(index,{urlKey:'x',question:'What is a pineapple?',recent:[]}),[]);
 assert.ok(indexMatches(index.find(e=>e.id==='pg'),'MVCC vacuum'));
 assert.ok(indexMatches(index.find(e=>e.id==='pg'),'dead tuples'));

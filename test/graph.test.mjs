@@ -1,7 +1,16 @@
 import assert from 'node:assert/strict';
-import { connections, graphData, layout, parseConcepts, vocabulary } from '../graph.js';
+import { connections, graphData, layout, mergeTags, parseConcepts, replyTags, vocabulary } from '../graph.js';
 
 assert.deepEqual(parseConcepts('1. MVCC\n- Row locking.\n* "Postgres"\nmvcc\n\n' + 'x'.repeat(61) + '\nA\nB\nC'), ['MVCC', 'Row locking', 'Postgres', 'A', 'B']);
+
+// Tags at the end of a reply are cut from it; a [[need-page]] after them still ends the reply.
+assert.deepEqual(replyTags('Try the V&A.\n[[tags: Art museums | London]]'), { text: 'Try the V&A.', tags: ['Art museums', 'London'] });
+assert.deepEqual(replyTags('Need more.\n[[tags: none]]\n[[need-page]]'), { text: 'Need more.\n[[need-page]]', tags: [] });
+assert.deepEqual(replyTags('  No tags here. '), { text: 'No tags here.', tags: [] });
+// Tags only grow, without duplicates, up to the cap.
+assert.deepEqual(mergeTags(['MVCC', 'Databases'], ['databases', 'VACUUM']), ['MVCC', 'Databases', 'VACUUM']);
+assert.deepEqual(mergeTags(undefined, ['A']), ['A']);
+assert.equal(mergeTags(['1', '2', '3', '4', '5', '6', '7'], ['8', '9', '10']).length, 8);
 
 const h = (id, concepts, createdAt = '2026-01-01') => ({ id, exact: id, concepts, createdAt, messages: [] });
 const pages = [

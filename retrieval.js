@@ -1,9 +1,10 @@
 // Tag-sharing shortlist (thread-index.js) -> one Jev request scores every candidate -> top 3 injected, bounded. The answering model only writes the answer.
 export const CONTEXT_BYTES = 9000;
 export const MAX_RELATED = 3;
-// ponytail: untuned guess at the midpoint level ("useful background" or better); retune on labelled real threads
-// with test/eval-related.mjs.
-export const MIN_SCORE = 1;
+// Below "useful background" (1): on 33 real pairs, 7 scored 0.8–1.0 and flipped run to run at a cut of 1 (Oct 2026).
+// A missed thread loses the memory; an extra one costs input and the answering model ignores it. MAX_RELATED still caps it.
+// ponytail: set by eye, not on labels; retune with test/eval-related.mjs once related-labels.json is labelled.
+export const MIN_SCORE = 0.75;
 const bytes = s => new TextEncoder().encode(s).length;
 const clip = (s, n) => { const chars = Array.from(String(s || '')); return chars.length > n ? chars.slice(0, n).join('') + '… [truncated]' : chars.join(''); };
 const json = record => JSON.stringify(record).replace(/</g, '\\u003c').replace(/>/g, '\\u003e');

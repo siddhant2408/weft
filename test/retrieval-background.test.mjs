@@ -49,6 +49,14 @@ await run('Jev rejecting every candidate gives one plain answer with no cross-pa
  assert.deepEqual(session, {});
  assert.deepEqual((await msg({type: 'thread.connections', urlKey: key, id: 'h'})).links, [], 'the card shows what the reply was given');
 });
+await run('a reply naming a new topic adds its tags to the thread, and the line is cut from the reply', async () => {
+ score = 0.1;
+ const pending = send(); await wait(() => calls.length === 1);
+ assert.match(JSON.stringify(calls[0].req.system), /<current_tags>\\nMVCC\\n<\/current_tags>/);
+ calls[0].finish('Direct.\n[[tags: Databases | mvcc]]'); await pending;
+ assert.equal(lastReply().content, 'Direct.');
+ assert.deepEqual(state['page:' + key].highlights[0].concepts, ['MVCC', 'Databases']);
+});
 await run('Jev scores the shortlist in one request; the picked source is read fresh and the cited reply saved', async () => {
  holdJev = true;
  const pending = send(); await wait(() => jevCalls.length === 1);
