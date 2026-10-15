@@ -208,7 +208,7 @@ document.querySelectorAll('.view button').forEach((b) => b.addEventListener('cli
 $('export').addEventListener('click', async () => {
   const data = MarginNotes.exportData(await chrome.storage.local.get(null));
   const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
-  el('a', { href: url, download: `margin-export-${new Date().toISOString().slice(0, 10)}.json` }).click();
+  el('a', { href: url, download: `weft-export-${new Date().toISOString().slice(0, 10)}.json` }).click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 });
 chrome.storage.onChanged.addListener((_, area) => area === 'local' && load());

@@ -95,7 +95,7 @@ $('g-signin').addEventListener('click', async () => {
 $('g-signout').addEventListener('click', async () => {
   const res = await bg({ type: 'chatgpt.signout' });
   await loadModel();
-  if (res?.ok && !res.revoked) setStatus('g-who', 'Signed out here. Couldn\'t confirm with OpenAI: disconnect Margin in ChatGPT settings if needed.', 'err');
+  if (res?.ok && !res.revoked) setStatus('g-who', 'Signed out here. Couldn\'t confirm with OpenAI: disconnect Weft in ChatGPT settings if needed.', 'err');
 });
 // The background worker finishes sign-in when the ChatGPT or OpenRouter tab redirects, then reports here.
 chrome.storage.onChanged.addListener(async (changes, area) => {
@@ -222,7 +222,7 @@ function renderDelete(confirming, pageCount) {
 $('export').addEventListener('click', async () => {
   const data = MarginNotes.exportData(await chrome.storage.local.get(null));
   const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
-  Object.assign(document.createElement('a'), { href: url, download: `margin-export-${new Date().toISOString().slice(0, 10)}.json` }).click();
+  Object.assign(document.createElement('a'), { href: url, download: `weft-export-${new Date().toISOString().slice(0, 10)}.json` }).click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 });
 

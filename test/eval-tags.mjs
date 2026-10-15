@@ -1,5 +1,5 @@
 // Opt-in tagging eval: re-tags real threads from a notes export and prints the tags side by side. Spends API credits.
-// Run: OPENROUTER_API_KEY=sk-or-… node test/eval-tags.mjs margin-export.json > tags.md
+// Run: OPENROUTER_API_KEY=sk-or-… node test/eval-tags.mjs weft-export.json > tags.md
 //   provider and model env vars: see test/eval-env.mjs
 //   MODEL=… SMALL_MODEL=…  the two models compared (both default to openrouter/free, which varies per call: set them)
 //   ALT_PROMPT=file.txt     also runs both models with this system prompt in place of CONCEPTS_SYS
