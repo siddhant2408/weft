@@ -1,8 +1,8 @@
-// Highlights on the page and Notion-style comment cards beside them (spec D12, D14).
+// Highlights on the page and Notion-style comment cards beside them.
 // Select text → a comment box appears next to it → Enter asks the model. Saved threads show as
 // margin icons; clicking one (or the yellow text) opens its card. One card open at a time.
 (async () => {
-  // Excluded sites: stay fully inert (spec T5). A change applies on the next page load.
+  // Excluded sites: stay fully inert. A change applies on the next page load.
   const s0 = await MarginSettings.get();
   if (MarginSettings.isExcluded(location.hostname, s0.excluded)) return;
 
@@ -26,7 +26,7 @@
     canonical: document.querySelector('link[rel="canonical"]')?.href || null,
     title: document.title,
   });
-  const md = (s) => DOMPurify.sanitize(marked.parse(s));  // model output is untrusted HTML (spec T4)
+  const md = (s) => DOMPurify.sanitize(marked.parse(s));  // model output is untrusted HTML
 
   // ---------- highlights ----------
   function paint() {
@@ -637,7 +637,7 @@
       else paint();
       renderCard();
     }
-    if (area === 'local' && !changes['page:' + urlKey] && Object.keys(changes).some(k => k.startsWith('page:'))) {
+    if (area === 'local' && !changes['page:' + urlKey] && Object.keys(changes).some((k) => k.startsWith('page:'))) {
       ui.linksFor = null;  // another source changed: refresh discovery from the current index
       renderCard();
     }

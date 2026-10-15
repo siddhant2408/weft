@@ -25,7 +25,7 @@ const el = (tag, props = {}, ...children) => {
   n.append(...kids(children));
   return n;
 };
-const md = (s) => DOMPurify.sanitize(marked.parse(s));  // model output is untrusted HTML (spec T4)
+const md = (s) => DOMPurify.sanitize(marked.parse(s));  // model output is untrusted HTML
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
 const ICON = {
