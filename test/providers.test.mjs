@@ -12,7 +12,7 @@ const serve = (body, status = 200) => {
     return new Response(stream, { status });
   };
 };
-const { ask, judge, replierName, getSettings } = await import('../providers.js');
+const { ask, judge, replierName, getSettings, openrouterSignIn, openrouterRedirect, APP_URL, OR_CALLBACK } = await import('../providers.js');
 const chunk = (t) => `data: ${JSON.stringify({ choices: [{ delta: { content: t } }] })}\n\n`;
 
 // [DONE], comment lines, partials, cache_control only for anthropic/ models
@@ -103,6 +103,53 @@ serve(JSON.stringify({ detail: 'Invalid API key' }), 401);
 assert.equal((await judge({}, q)).code, 'BAD_KEY');
 globalThis.fetch = async () => { throw new TypeError('Failed to fetch'); };
 assert.equal((await judge({}, q)).code, 'NETWORK');
+// No TypeSafe key: the same request goes to OpenRouter on the OpenRouter key, with Margin's attribution
+settings = { openrouter: { apiKey: 'or' } };
+serve(JSON.stringify({ answers: { helps: { type: 'noul', noul: 0.5 } } }));
+assert.equal((await judge({ a: 1 }, q)).ok, true);
+assert.equal(lastReq.url, 'https://openrouter.ai/api/v1/systemone');
+assert.equal(lastReq.init.headers.authorization, 'Bearer or');
+assert.equal(lastReq.init.headers['HTTP-Referer'], APP_URL);
+assert.equal(lastReq.body.model, '~typesafe/jev-latest');
+// An explicit choice wins over a saved key either way
+settings = { judge: 'openrouter', typesafe: { apiKey: 'ts' }, openrouter: { apiKey: 'or' } };
+serve(JSON.stringify({ answers: {} }));
+await judge({}, q);
+assert.equal(lastReq.url, 'https://openrouter.ai/api/v1/systemone');
+settings = { judge: 'typesafe', openrouter: { apiKey: 'or' } };
+assert.equal((await judge({}, q)).code, 'NO_KEY', 'TypeSafe chosen but no key: no silent switch to OpenRouter');
 settings = {};
 assert.equal((await judge({}, q)).code, 'NO_KEY');
+
+// OpenRouter sign-in: the sign-in tab's redirect to OR_CALLBACK is swapped for a key, saved as the OpenRouter key
+const session = {}, removed = [];
+let saved;
+chrome.storage.session = { get: async (k) => ({ [k]: session[k] }), set: async (o) => Object.assign(session, o), remove: async (k) => { delete session[k]; } };
+chrome.storage.local.set = async (o) => { saved = o.settings; };
+chrome.tabs = { create: async ({ url }) => ({ id: 7, url }), remove: async (id) => removed.push(id) };
+settings = { provider: 'chatgpt', openrouter: { model: 'openai/gpt-x' } };
+assert.deepEqual(await openrouterSignIn(), { ok: true });
+const { state, verifier } = session['openrouter.pending'];
+assert.equal(await openrouterRedirect(8, `${OR_CALLBACK}?code=c&state=${state}`), null, 'other tabs ignored');
+assert.equal(await openrouterRedirect(7, 'https://openrouter.ai/auth?x'), null, 'other URLs ignored');
+serve(JSON.stringify({ key: 'sk-or-new' }));
+assert.deepEqual(await openrouterRedirect(7, `${OR_CALLBACK}?code=c&state=${state}`), { ok: true });
+assert.equal(lastReq.url, 'https://openrouter.ai/api/v1/auth/keys');
+assert.deepEqual(lastReq.body, { code: 'c', code_verifier: verifier, code_challenge_method: 'S256' });
+assert.deepEqual(saved, { provider: 'openrouter', openrouter: { model: 'openai/gpt-x', apiKey: 'sk-or-new' } });
+assert.deepEqual(removed, [7]);
+assert.equal(session['openrouter.pending'], undefined, 'one use');
+// From Related threads: connects without switching who replies
+await openrouterSignIn({ forReplies: false });
+serve(JSON.stringify({ key: 'sk-or-2' }));
+await openrouterRedirect(7, `${OR_CALLBACK}?code=c&state=${session['openrouter.pending'].state}`);
+assert.equal(saved.provider, 'chatgpt');
+assert.equal(saved.openrouter.apiKey, 'sk-or-2');
+// Denied (no code), wrong state, failed exchange
+for (const [q2, code, status] of [['', 'OR_SIGNIN_DECLINED'], ['code=c&state=bad', 'OR_SIGNIN_FAILED'], ['code=c&STATE', 'OR_SIGNIN_FAILED', 403]]) {
+  await openrouterSignIn();
+  const s2 = session['openrouter.pending'].state;
+  serve(JSON.stringify({ error: { message: 'Invalid code' } }), status || 200);
+  assert.equal((await openrouterRedirect(7, `${OR_CALLBACK}?${q2.replace('STATE', 'state=' + s2)}`)).code, code);
+}
 console.log('providers: all passed');

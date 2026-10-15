@@ -5,7 +5,7 @@ Comment threads on anything you read, where the replies come from AI. Highlight 
 ## Install (macOS)
 
 1. Open `chrome://extensions`, turn on Developer mode, and load this folder with **Load unpacked**.
-2. In Settings → Model, sign in with ChatGPT (Go, Plus or Pro) or paste an [OpenRouter](https://openrouter.ai/keys) key.
+2. In Settings → Model, sign in with ChatGPT (Go, Plus or Pro) or connect OpenRouter (one click, or paste a [key](https://openrouter.ai/keys)).
 3. Optional: run `./native-host/install.sh` to back up notes to SQLite.
 
 What gets sent where, and how tokens and backups are stored: [docs/privacy.md](docs/privacy.md).

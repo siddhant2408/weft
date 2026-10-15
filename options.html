@@ -21,6 +21,8 @@
   .fields { display: grid; gap: 12px; margin: 4px 0 14px; padding: 14px; border-radius: 10px; background: var(--bg-soft); }
   .fields label { display: grid; gap: 4px; font-size: 13px; font-weight: 500; color: var(--soft); }
   .fields input, .fields select { background: var(--bg); }
+  .fields summary { cursor: pointer; font-size: 13px; }
+  .fields details[open] summary { margin-bottom: 8px; }
   .with-btn { display: flex; gap: 6px; } .with-btn input { flex: 1; }
   textarea#excluded { width: 100%; min-height: 200px; font: 13px/1.6 var(--mono); color: var(--ink); background: var(--bg-soft);
     border: 0; border-radius: 8px; box-shadow: inset 0 0 0 1px var(--line); padding: 10px 12px; resize: vertical; }
@@ -45,7 +47,12 @@
     </fieldset>
 
     <div class="fields" data-for="openrouter">
-      <label>OpenRouter API key <input type="password" id="o-key" autocomplete="off" placeholder="sk-or-…"></label>
+      <div class="row" style="margin:0"><span id="o-who" class="status"></span><span class="spacer"></span>
+        <button type="button" class="btn primary" id="o-signin">Connect OpenRouter</button>
+        <button type="button" class="btn" id="o-signout" hidden>Disconnect</button></div>
+      <details id="o-paste"><summary class="muted">Use an API key instead</summary>
+        <label>OpenRouter API key <input type="password" id="o-key" autocomplete="off" placeholder="sk-or-…"></label>
+      </details>
       <label>Replies and summaries <span class="with-btn"><input id="o-model" list="o-models" placeholder="openrouter/free" spellcheck="false"><button type="button" class="btn" id="o-load">Load models</button></span></label>
       <label>Tags and takeaways <input id="o-small" list="o-models" placeholder="openrouter/free" spellcheck="false"></label>
       <datalist id="o-models"></datalist>
@@ -65,26 +72,39 @@
 
     <p class="help small">Tags and takeaways are short jobs, so a smaller, cheaper model does fine there. Switching the replies model re-sends the article on your next question.</p>
     <div class="row">
-      <button class="btn" id="test">Test connection</button>
       <span class="status" id="conn" role="status"></span>
       <span class="spacer"></span>
-      <button class="btn primary" id="m-save">Save</button>
+      <button class="btn primary" id="m-save">Use OpenRouter</button>
     </div>
     <div id="conn-err"></div>
   </section>
 
   <section aria-labelledby="h-related">
     <h2 id="h-related">Related threads</h2>
-    <p class="help">Before a reply, Margin looks for threads on other pages that share a tag with this one. With a TypeSafe key, its Jev model scores how much each would help with your question, and only the useful ones (up to 3) are sent along with it. Without a key, the 3 with the most word overlap are sent.</p>
-    <div class="fields">
-      <label>TypeSafe API key <input type="password" id="t-key" autocomplete="off" placeholder="Optional"></label>
-      <p class="help small">In one request per reply, Jev sees this thread's passage, question and recent messages, plus each candidate's page title, passage, takeaway, last question and last AI reply. Get a key at <a href="https://console.typesafe.ai" target="_blank" rel="noopener">console.typesafe.ai</a>. The key is sent only to TypeSafe.</p>
+    <p class="help">Before a reply, Margin looks for threads on other pages that share a tag with this one. TypeSafe's Jev model scores how much each would help with your question, and only the useful ones (up to 3) are sent along with it. Without Jev, the 3 with the most word overlap are sent.</p>
+    <fieldset class="choices">
+      <legend class="sr">Who runs Jev</legend>
+      <label><input type="radio" name="judge" value="openrouter"> <span><b>OpenRouter</b> <span class="muted">Jev on your OpenRouter connection. Paid: one small request per reply, from your OpenRouter credits.</span></span></label>
+      <label><input type="radio" name="judge" value="typesafe"> <span><b>TypeSafe</b> <span class="muted">Your own TypeSafe API key, billed there instead.</span></span></label>
+    </fieldset>
+
+    <div class="fields" data-judge="openrouter">
+      <div class="row" style="margin:0"><span id="j-who" class="status"></span><span class="spacer"></span>
+        <button type="button" class="btn primary" id="j-signin">Connect OpenRouter</button></div>
+      <p class="help small">The same connection as Model above. Model: <code id="j-model"></code>. Free models don't need credits, but Jev does: add some at <a href="https://openrouter.ai/settings/credits" target="_blank" rel="noopener">openrouter.ai/settings/credits</a>.</p>
     </div>
+    <div class="fields" data-judge="typesafe">
+      <label>TypeSafe API key <input type="password" id="t-key" autocomplete="off" placeholder="From console.typesafe.ai"></label>
+      <p class="help small">Get a key at <a href="https://console.typesafe.ai" target="_blank" rel="noopener">console.typesafe.ai</a>. It's sent only to TypeSafe.</p>
+    </div>
+
+    <p class="help small">In one request per reply, Jev sees this thread's passage, question and recent messages, plus each candidate's page title, passage, takeaway, last question and last AI reply.</p>
     <div class="row">
-      <span class="spacer"></span>
       <span class="status" id="t-status" role="status"></span>
-      <button class="btn primary" id="t-save">Save</button>
+      <span class="spacer"></span>
+      <button class="btn primary" id="t-save">Use OpenRouter</button>
     </div>
+    <div id="t-err"></div>
   </section>
 
   <section aria-labelledby="h-ex">

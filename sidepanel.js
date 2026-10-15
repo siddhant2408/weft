@@ -3,7 +3,7 @@
 // about the page as a whole. It also shows what the model is told about your reading.
 // Storage is the source of truth; this panel re-renders from it and sends writes through the background worker.
 let tabId = null, urlKey = null, page = null, orphans = [];
-let replier = 'AI';                   // who answers, from settings
+const replier = 'AI';                 // prompts say AI whoever is set up; replies carry their model (m.by)
 const pending = new Set();          // pending keys waiting on the model (storage.session)
 const streams = {};                 // pending key → partial reply while the model streams
 const phases = {};                  // pending key → retrieval status
@@ -301,7 +301,7 @@ function header() {
 // Global: not about this page, so they sit in the top bar above it.
 $('global').append(
   iconBtn('list', 'All threads', () => chrome.tabs.create({ url: chrome.runtime.getURL('threads.html') })),
-  iconBtn('gear', 'Settings', () => chrome.runtime.openOptionsPage()));
+  iconBtn('gear', 'Settings', () => chrome.runtime.openOptionsPage().then(() => window.close())));  // the panel would sit beside Settings
 
 function render() {
   header();
@@ -318,14 +318,8 @@ function render() {
 }
 
 // ---------- wiring ----------
-function setReplier(settings) {
-  const m = settings?.openrouter?.model;
-  replier = settings?.provider === 'chatgpt' ? settings.chatgpt?.model || 'ChatGPT' : !m || m === 'openrouter/free' ? 'AI' : m.split('/').pop();
-}
-chrome.storage.local.get('settings').then(({ settings }) => { setReplier(settings); render(); });
 
 chrome.storage.onChanged.addListener((changes, area) => {
-  if (area === 'local' && changes.settings) { setReplier(changes.settings.newValue); render(); }
   if (area === 'local' && urlKey && changes['page:' + urlKey]) {
     page = changes['page:' + urlKey].newValue || null;
     render();

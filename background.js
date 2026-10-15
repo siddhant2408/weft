@@ -1,5 +1,5 @@
 import { normaliseUrl } from './url.js';
-import { HOST, ask, judge, getSettings, replierName } from './providers.js';
+import { HOST, ask, judge, judgeBy, getSettings, replierName, openrouterSignIn, openrouterRedirect } from './providers.js';
 import { connections, mergeTags, parseConcepts, replyTags, vocabulary } from './graph.js';
 import * as ChatGPT from './chatgpt.js';
 import { buildIndex, findCandidates } from './thread-index.js';
@@ -18,6 +18,10 @@ const HINTS = {
   PLAN_INELIGIBLE: 'This ChatGPT account or workspace can\'t share its plan with apps. Use OpenRouter in Settings.',
   SIGNIN_DECLINED: 'ChatGPT sign-in was cancelled.',
   SIGNIN_FAILED: 'ChatGPT sign-in failed. Try again.',
+  TS_BAD_KEY: 'TypeSafe rejected the key. Check it in Settings.',
+  JUDGE_NO_KEY: 'Connect OpenRouter, or add a TypeSafe key, to score related threads.',
+  OR_SIGNIN_DECLINED: 'OpenRouter sign-in was cancelled.',
+  OR_SIGNIN_FAILED: 'OpenRouter sign-in failed. Try again, or paste a key instead.',
   NO_CREDITS: 'Your OpenRouter account is out of credits. Top up at openrouter.ai/settings/credits.',
   DATA_POLICY: 'Your OpenRouter privacy settings block this model. Free models need "free endpoints" allowed at openrouter.ai/settings/privacy.',
   BAD_KEY: 'OpenRouter rejected the API key. Check it in Settings.',
@@ -486,6 +490,14 @@ const handlers = {
     return res.ok ? { ok: true, ms: Date.now() - t0 } : fail(res.code, res.detail);
   },
 
+  // One tiny Jev call on whichever key Related threads uses (a paid request on OpenRouter).
+  'judge.check': async () => {
+    const t0 = Date.now(), by = judgeBy(await getSettings());
+    const res = await judge('Margin settings check.', { ok: { type: 'noul', instructions: 'This is a settings check.' } });
+    if (res.ok) return { ok: true, ms: Date.now() - t0 };
+    return fail(res.code === 'NO_KEY' ? 'JUDGE_NO_KEY' : res.code === 'BAD_KEY' && by === 'typesafe' ? 'TS_BAD_KEY' : res.code, res.detail);
+  },
+
   'thread.connections': async (msg) => {
     const pages = await allPages();
     backfill(pages);
@@ -494,6 +506,7 @@ const handlers = {
 
   'thread.reopen': (msg) => updateThread(msg.urlKey, msg.id, (h) => { h.status = 'open'; }),
 
+  'openrouter.signin': (msg) => openrouterSignIn({ forReplies: msg.forReplies !== false }),
   'chatgpt.signin': () => ChatGPT.signIn(),
   'chatgpt.signout': async () => {
     const res = await ChatGPT.signOut();
@@ -521,6 +534,11 @@ chrome.tabs.onUpdated.addListener(async (tabId, info) => {
       chatgpt: { model: s.chatgpt.model || first, smallModel: s.chatgpt.smallModel || first } } });
   }
   await chrome.storage.session.set({ 'chatgpt.result': res.ok ? { ok: true, email: res.email, at: Date.now() } : { ...fail(res.code, res.detail), at: Date.now() } });
+});
+// OpenRouter sign-in ends by sending its tab to a localhost address nothing listens on, with a code; this swaps it for a key (providers.js).
+chrome.tabs.onUpdated.addListener(async (tabId, info) => {
+  const res = await openrouterRedirect(tabId, info.url);
+  if (res) await chrome.storage.session.set({ 'openrouter.result': res.ok ? { ok: true, at: Date.now() } : { ...fail(res.code, res.detail), at: Date.now() } });
 });
 ChatGPT.moveFromStorage().catch(() => {});  // credentials an earlier build kept in chrome.storage.local
 
