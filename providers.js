@@ -104,12 +104,14 @@ function openrouter({ system, notes, prompt, schema }, { apiKey, model }, onText
 // would mean an install warning. Rankings attribution comes from the HTTP-Referer on each request instead.
 export const OR_CALLBACK = 'http://localhost:1456/openrouter';
 const OR_PENDING = 'openrouter.pending';
-export async function openrouterSignIn() {
+// forReplies: started from Model, so a successful sign-in also makes OpenRouter the one that replies. From Related
+// threads it only connects: someone replying with ChatGPT keeps ChatGPT.
+export async function openrouterSignIn({ forReplies = true } = {}) {
   const verifier = random(), state = random();
   const challenge = b64url(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier)));
   const params = { callback_url: OR_CALLBACK, code_challenge: challenge, code_challenge_method: 'S256', state, key_label: 'Margin' };
   const tab = await chrome.tabs.create({ url: `https://openrouter.ai/auth?${new URLSearchParams(params)}` });
-  await chrome.storage.session.set({ [OR_PENDING]: { tabId: tab.id, state, verifier } });
+  await chrome.storage.session.set({ [OR_PENDING]: { tabId: tab.id, state, verifier, forReplies } });
   return { ok: true };
 }
 
@@ -135,7 +137,7 @@ export async function openrouterRedirect(tabId, url) {
   }
   if (!key) return { ok: false, code: 'OR_SIGNIN_FAILED', detail: 'no key returned' };
   const { settings = {} } = await chrome.storage.local.get('settings');
-  await chrome.storage.local.set({ settings: { ...settings, provider: 'openrouter', openrouter: { ...settings.openrouter, apiKey: key } } });
+  await chrome.storage.local.set({ settings: { ...settings, ...(pending.forReplies && { provider: 'openrouter' }), openrouter: { ...settings.openrouter, apiKey: key } } });
   return { ok: true };
 }
 
@@ -199,16 +201,18 @@ export const replierName = (s) => {
 };
 
 // Jev (TypeSafe System One): typed judgments over `state`, one answer per question, e.g. a score (0 to the top level) per question.
-// Not streamed. settings.typesafe = {apiKey}; without one it goes through OpenRouter on the OpenRouter key (same API,
-// docs.typesafe.ai/sdk/python/usage), and with neither, callers fall back to code (docs.typesafe.ai/api).
+// Not streamed. Runs on the OpenRouter key (same API, docs.typesafe.ai/sdk/python/usage) or settings.typesafe = {apiKey};
+// without the chosen key, callers fall back to code (docs.typesafe.ai/api).
 export const JUDGE_MODEL = 'jev-latest';
 export const JUDGE_MODEL_OPENROUTER = '~typesafe/jev-latest';
+// settings.judge: 'openrouter' | 'typesafe' (Settings → Related threads); unset, a saved TypeSafe key wins, as before.
+export const judgeBy = (s) => s.judge || (s.typesafe?.apiKey ? 'typesafe' : 'openrouter');
 export async function judge(state, questions) {
   const s = await getSettings();
-  const [url, apiKey, model, extra] = s.typesafe?.apiKey
-    ? ['https://api.typesafe.ai/v1/systemone', s.typesafe.apiKey, JUDGE_MODEL, {}]
+  const [url, apiKey, model, extra] = judgeBy(s) === 'typesafe'
+    ? ['https://api.typesafe.ai/v1/systemone', s.typesafe?.apiKey, JUDGE_MODEL, {}]
     : [`${BASE}/systemone`, s.openrouter.apiKey, JUDGE_MODEL_OPENROUTER, ATTRIBUTION];
-  if (!apiKey) return { ok: false, code: 'NO_KEY', detail: 'No TypeSafe or OpenRouter API key set.' };
+  if (!apiKey) return { ok: false, code: 'NO_KEY', detail: judgeBy(s) === 'typesafe' ? 'No TypeSafe API key set.' : 'OpenRouter is not connected.' };
   try {
     const res = await fetch(url, { method: 'POST', signal: AbortSignal.timeout(20000),
       headers: { 'content-type': 'application/json', authorization: `Bearer ${apiKey}`, ...extra },

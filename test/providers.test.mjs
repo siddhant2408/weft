@@ -111,6 +111,13 @@ assert.equal(lastReq.url, 'https://openrouter.ai/api/v1/systemone');
 assert.equal(lastReq.init.headers.authorization, 'Bearer or');
 assert.equal(lastReq.init.headers['HTTP-Referer'], APP_URL);
 assert.equal(lastReq.body.model, '~typesafe/jev-latest');
+// An explicit choice wins over a saved key either way
+settings = { judge: 'openrouter', typesafe: { apiKey: 'ts' }, openrouter: { apiKey: 'or' } };
+serve(JSON.stringify({ answers: {} }));
+await judge({}, q);
+assert.equal(lastReq.url, 'https://openrouter.ai/api/v1/systemone');
+settings = { judge: 'typesafe', openrouter: { apiKey: 'or' } };
+assert.equal((await judge({}, q)).code, 'NO_KEY', 'TypeSafe chosen but no key: no silent switch to OpenRouter');
 settings = {};
 assert.equal((await judge({}, q)).code, 'NO_KEY');
 
@@ -132,6 +139,12 @@ assert.deepEqual(lastReq.body, { code: 'c', code_verifier: verifier, code_challe
 assert.deepEqual(saved, { provider: 'openrouter', openrouter: { model: 'openai/gpt-x', apiKey: 'sk-or-new' } });
 assert.deepEqual(removed, [7]);
 assert.equal(session['openrouter.pending'], undefined, 'one use');
+// From Related threads: connects without switching who replies
+await openrouterSignIn({ forReplies: false });
+serve(JSON.stringify({ key: 'sk-or-2' }));
+await openrouterRedirect(7, `${OR_CALLBACK}?code=c&state=${session['openrouter.pending'].state}`);
+assert.equal(saved.provider, 'chatgpt');
+assert.equal(saved.openrouter.apiKey, 'sk-or-2');
 // Denied (no code), wrong state, failed exchange
 for (const [q2, code, status] of [['', 'OR_SIGNIN_DECLINED'], ['code=c&state=bad', 'OR_SIGNIN_FAILED'], ['code=c&STATE', 'OR_SIGNIN_FAILED', 403]]) {
   await openrouterSignIn();

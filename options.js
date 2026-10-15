@@ -1,4 +1,4 @@
-import { getSettings, DEFAULT_MODEL, DEFAULT_SMALL_MODEL } from './providers.js';
+import { getSettings, judgeBy, DEFAULT_MODEL, DEFAULT_SMALL_MODEL, JUDGE_MODEL_OPENROUTER } from './providers.js';
 import { getAuth, defaultModel } from './chatgpt.js';
 
 const $ = (id) => document.getElementById(id);
@@ -27,6 +27,7 @@ async function loadModel() {
   $('o-small').value = o.smallModel || DEFAULT_SMALL_MODEL;
   $('t-key').value = s.typesafe?.apiKey || '';
   showFields();
+  loadRelated(s);
   await loadChatGPT(s.chatgpt);
 }
 
@@ -36,6 +37,8 @@ function showOpenRouter(key) {
   $('o-signout').hidden = !key;
   $('o-paste').hidden = !!key;
   setStatus('o-who', key ? 'Connected' : 'Not connected', key ? 'ok' : '');
+  $('j-signin').hidden = !!key;  // Related threads shows the same connection
+  setStatus('j-who', key ? 'Connected' : 'Not connected', key ? 'ok' : '');
 }
 
 // Signed in: who, plus model pickers filled from the account's catalogue. Signed out: just the sign-in button.
@@ -71,10 +74,11 @@ async function saveModel() {
 radios().forEach((r) => r.addEventListener('change', () => { showFields(); setStatus('conn', 'Unsaved changes'); }));
 for (const id of ['o-key', 'o-model', 'o-small', 'g-model', 'g-small']) $(id).addEventListener('input', () => setStatus('conn', 'Unsaved changes'));
 
-$('o-signin').addEventListener('click', async () => {
+// One sign-in, two buttons: Model and Related threads share the OpenRouter connection.
+for (const [btn, who, forReplies] of [['o-signin', 'o-who', true], ['j-signin', 'j-who', false]]) $(btn).addEventListener('click', async () => {
   await chrome.storage.session.remove('openrouter.result');
-  const res = await bg({ type: 'openrouter.signin' });
-  setStatus('o-who', res?.ok ? 'Finish connecting in the OpenRouter tab…' : res?.error?.hint || 'Couldn\'t start sign-in', res?.ok ? '' : 'err');
+  const res = await bg({ type: 'openrouter.signin', forReplies });
+  setStatus(who, res?.ok ? 'Finish connecting in the OpenRouter tab…' : res?.error?.hint || 'Couldn\'t start sign-in', res?.ok ? '' : 'err');
 });
 // Forgets the key here. It stays valid at OpenRouter until deleted at openrouter.ai/settings/keys.
 $('o-signout').addEventListener('click', async () => {
@@ -98,7 +102,7 @@ chrome.storage.onChanged.addListener(async (changes, area) => {
   const o = area === 'session' && changes['openrouter.result']?.newValue;
   if (o) {
     await loadModel();
-    if (!o.ok) setStatus('o-who', o.error?.hint || 'Sign-in failed', 'err');
+    if (!o.ok) for (const who of ['o-who', 'j-who']) setStatus(who, o.error?.hint || 'Sign-in failed', 'err');
     return;
   }
   const r = area === 'session' && changes['chatgpt.result']?.newValue;
@@ -141,12 +145,35 @@ $('o-load').addEventListener('click', async () => {
 });
 
 // --- Related threads ---
-$('t-save').addEventListener('click', async () => {
-  const { settings } = await chrome.storage.local.get('settings');
-  await chrome.storage.local.set({ settings: { ...settings, typesafe: { apiKey: $('t-key').value.trim() } } });
-  setStatus('t-status', 'Saved', 'ok');
-});
+const judgeRadios = () => [...document.querySelectorAll('input[name=judge]')];
+const judgeChoice = () => judgeRadios().find((r) => r.checked)?.value || 'openrouter';
+function showJudge() {
+  document.querySelectorAll('.fields[data-judge]').forEach((f) => { f.hidden = f.dataset.judge !== judgeChoice(); });
+  $('t-save').textContent = judgeChoice() === 'typesafe' ? 'Use TypeSafe' : 'Use OpenRouter';
+}
+function loadRelated(s) {
+  judgeRadios().forEach((r) => { r.checked = r.value === judgeBy(s); });
+  $('j-model').textContent = JUDGE_MODEL_OPENROUTER;
+  showJudge();
+}
+judgeRadios().forEach((r) => r.addEventListener('change', () => { showJudge(); setStatus('t-status', 'Unsaved changes'); }));
 $('t-key').addEventListener('input', () => setStatus('t-status', 'Unsaved changes'));
+
+// Like Model: saves the choice, then checks it with one tiny Jev call, and keeps the choice if the check fails.
+$('t-save').addEventListener('click', async () => {
+  $('t-save').disabled = true;
+  $('t-err').replaceChildren();
+  const { settings } = await chrome.storage.local.get('settings');
+  await chrome.storage.local.set({ settings: { ...settings, judge: judgeChoice(), typesafe: { apiKey: $('t-key').value.trim() } } });
+  setStatus('t-status', 'Saved · checking Jev…');
+  const res = await bg({ type: 'judge.check' });
+  if (res?.ok) setStatus('t-status', `Saved · Jev replied in ${(res.ms / 1000).toFixed(1)} s`, 'ok');
+  else {
+    setStatus('t-status', 'Saved, but Jev didn\'t reply', 'err');
+    $('t-err').replaceChildren(Object.assign(document.createElement('div'), { className: 'error', textContent: res?.error?.hint || 'Unknown error' }));
+  }
+  $('t-save').disabled = false;
+});
 
 // --- Excluded sites ---
 async function loadExcluded() {

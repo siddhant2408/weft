@@ -301,7 +301,7 @@ function header() {
 // Global: not about this page, so they sit in the top bar above it.
 $('global').append(
   iconBtn('list', 'All threads', () => chrome.tabs.create({ url: chrome.runtime.getURL('threads.html') })),
-  iconBtn('gear', 'Settings', () => chrome.runtime.openOptionsPage()));
+  iconBtn('gear', 'Settings', () => chrome.runtime.openOptionsPage().then(() => window.close())));  // the panel would sit beside Settings
 
 function render() {
   header();

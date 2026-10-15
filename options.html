@@ -81,16 +81,30 @@
 
   <section aria-labelledby="h-related">
     <h2 id="h-related">Related threads</h2>
-    <p class="help">Before a reply, Margin looks for threads on other pages that share a tag with this one. With a TypeSafe key, or through your OpenRouter key if you leave this empty, its Jev model scores how much each would help with your question, and only the useful ones (up to 3) are sent along with it. With neither, the 3 with the most word overlap are sent.</p>
-    <div class="fields">
-      <label>TypeSafe API key <input type="password" id="t-key" autocomplete="off" placeholder="Optional"></label>
-      <p class="help small">In one request per reply, Jev sees this thread's passage, question and recent messages, plus each candidate's page title, passage, takeaway, last question and last AI reply. Get a key at <a href="https://console.typesafe.ai" target="_blank" rel="noopener">console.typesafe.ai</a>. The key is sent only to TypeSafe; without one, the same request goes to OpenRouter and is billed there.</p>
+    <p class="help">Before a reply, Margin looks for threads on other pages that share a tag with this one. TypeSafe's Jev model scores how much each would help with your question, and only the useful ones (up to 3) are sent along with it. Without Jev, the 3 with the most word overlap are sent.</p>
+    <fieldset class="choices">
+      <legend class="sr">Who runs Jev</legend>
+      <label><input type="radio" name="judge" value="openrouter"> <span><b>OpenRouter</b> <span class="muted">Jev on your OpenRouter connection. Paid: one small request per reply, from your OpenRouter credits.</span></span></label>
+      <label><input type="radio" name="judge" value="typesafe"> <span><b>TypeSafe</b> <span class="muted">Your own TypeSafe API key, billed there instead.</span></span></label>
+    </fieldset>
+
+    <div class="fields" data-judge="openrouter">
+      <div class="row" style="margin:0"><span id="j-who" class="status"></span><span class="spacer"></span>
+        <button type="button" class="btn primary" id="j-signin">Connect OpenRouter</button></div>
+      <p class="help small">The same connection as Model above. Model: <code id="j-model"></code>. Free models don't need credits, but Jev does: add some at <a href="https://openrouter.ai/settings/credits" target="_blank" rel="noopener">openrouter.ai/settings/credits</a>.</p>
     </div>
+    <div class="fields" data-judge="typesafe">
+      <label>TypeSafe API key <input type="password" id="t-key" autocomplete="off" placeholder="From console.typesafe.ai"></label>
+      <p class="help small">Get a key at <a href="https://console.typesafe.ai" target="_blank" rel="noopener">console.typesafe.ai</a>. It's sent only to TypeSafe.</p>
+    </div>
+
+    <p class="help small">In one request per reply, Jev sees this thread's passage, question and recent messages, plus each candidate's page title, passage, takeaway, last question and last AI reply.</p>
     <div class="row">
-      <span class="spacer"></span>
       <span class="status" id="t-status" role="status"></span>
-      <button class="btn primary" id="t-save">Save</button>
+      <span class="spacer"></span>
+      <button class="btn primary" id="t-save">Use OpenRouter</button>
     </div>
+    <div id="t-err"></div>
   </section>
 
   <section aria-labelledby="h-ex">
