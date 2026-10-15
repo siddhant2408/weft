@@ -50,6 +50,7 @@
     "https://auth.openai.com/*",
     "https://api.openai.com/*",
     "https://api.typesafe.ai/*",
-    "http://127.0.0.1/*"
+    "http://127.0.0.1/*",
+    "http://localhost/*"
   ]
 }

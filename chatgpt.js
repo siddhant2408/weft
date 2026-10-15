@@ -15,8 +15,8 @@ const SCOPE = 'openid profile email offline_access resource.invoke chatgpt.token
 export const PLAN_SCOPE = 'chatgpt.tokens.use.direct';
 const PENDING = 'chatgpt.pending';  // storage.session: the sign-in attempt in flight (survives the worker sleeping)
 
-const b64url = (bytes) => btoa(String.fromCharCode(...new Uint8Array(bytes))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-const random = () => b64url(crypto.getRandomValues(new Uint8Array(32)));
+export const b64url = (bytes) => btoa(String.fromCharCode(...new Uint8Array(bytes))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+export const random = () => b64url(crypto.getRandomValues(new Uint8Array(32)));
 const without = (o, ...keys) => Object.fromEntries(Object.entries(o).filter(([k]) => !keys.includes(k)));
 const claims = (jwt) => JSON.parse(atob(jwt.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
 

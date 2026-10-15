@@ -5,11 +5,14 @@
 // because they change as the user reads; prompt is the per-call part.
 // Raw fetch rather than SDKs: the extension has no build step (spec D1).
 
-import { RESOURCE, accessToken } from './chatgpt.js';
+import { RESOURCE, accessToken, b64url, random } from './chatgpt.js';
 
 export const HOST = 'com.margin.host';  // native host: SQLite mirror only
 const TIMEOUT_MS = 120000;
 const BASE = 'https://openrouter.ai/api/v1';
+// Margin's public page: the HTTP-Referer that counts it in OpenRouter's app rankings.
+export const APP_URL = 'https://github.com/siddhant2408/margin';
+const ATTRIBUTION = { 'HTTP-Referer': APP_URL, 'X-Title': 'Margin' };
 // openrouter/free routes each call to one of OpenRouter's free models ($0, rate-limited, model varies per call).
 export const DEFAULT_MODEL = 'openrouter/free';
 // Small jobs (concept tags, takeaways) never include the article, so a fast cheap model loses no cache.
@@ -81,7 +84,7 @@ function openrouter({ system, notes, prompt, schema }, { apiKey, model }, onText
   const content = /^anthropic\//.test(model)
     ? [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }, ...(notes ? [{ type: 'text', text: notes }] : [])]
     : (notes ? `${system}\n\n${notes}` : system);
-  const headers = { 'content-type': 'application/json', authorization: `Bearer ${apiKey}`, 'X-Title': 'Margin' };
+  const headers = { 'content-type': 'application/json', authorization: `Bearer ${apiKey}`, ...ATTRIBUTION };
   const body = { model, stream: true, messages: [{ role: 'system', content }, { role: 'user', content: prompt }] };
   if (schema) body.response_format = { type: 'json_schema', json_schema: { name: schema.name, strict: true, schema: schema.schema } };
   return streamRequest(`${BASE}/chat/completions`, { method: 'POST', headers, body: JSON.stringify(body) }, ({ data }) => {
@@ -92,6 +95,48 @@ function openrouter({ system, notes, prompt, schema }, { apiKey, model }, onText
     const text = j.choices?.[0]?.delta?.content || '';
     return j.choices?.[0]?.finish_reason === 'stop' ? { text, done: true } : text;
   }, onText);
+}
+
+// One-click OpenRouter sign-in (OAuth PKCE, openrouter.ai/docs/guides/overview/auth/oauth). The user approves in an
+// OpenRouter tab, which then heads to OR_CALLBACK?code=…; as with ChatGPT, nothing listens there: the worker catches
+// it (tabs.onUpdated in background.js), closes the tab and swaps the code for an ordinary key, saved where a pasted
+// key goes. Loopback, not APP_URL: onUpdated only reports URLs on hosts in host_permissions, and github.com there
+// would mean an install warning. Rankings attribution comes from the HTTP-Referer on each request instead.
+export const OR_CALLBACK = 'http://localhost:1456/openrouter';
+const OR_PENDING = 'openrouter.pending';
+export async function openrouterSignIn() {
+  const verifier = random(), state = random();
+  const challenge = b64url(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier)));
+  const params = { callback_url: OR_CALLBACK, code_challenge: challenge, code_challenge_method: 'S256', state, key_label: 'Margin' };
+  const tab = await chrome.tabs.create({ url: `https://openrouter.ai/auth?${new URLSearchParams(params)}` });
+  await chrome.storage.session.set({ [OR_PENDING]: { tabId: tab.id, state, verifier } });
+  return { ok: true };
+}
+
+// The sign-in tab heading to OR_CALLBACK → {ok} | {ok: false, code, detail}; null for any other tab or URL.
+export async function openrouterRedirect(tabId, url) {
+  if (!url?.startsWith(OR_CALLBACK)) return null;
+  const pending = (await chrome.storage.session.get(OR_PENDING))[OR_PENDING];
+  if (!pending || pending.tabId !== tabId) return null;
+  await chrome.storage.session.remove(OR_PENDING);
+  chrome.tabs.remove(tabId).catch(() => {});
+  const q = new URL(url).searchParams;
+  if (!q.get('code')) return { ok: false, code: 'OR_SIGNIN_DECLINED' };  // denied: no code, no state
+  if (q.get('state') !== pending.state) return { ok: false, code: 'OR_SIGNIN_FAILED', detail: 'state mismatch' };
+  let key;
+  try {
+    const res = await fetch(`${BASE}/auth/keys`, { method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ code: q.get('code'), code_verifier: pending.verifier, code_challenge_method: 'S256' }) });
+    const body = await res.text().catch(() => '');
+    if (!res.ok) return { ok: false, code: 'OR_SIGNIN_FAILED', detail: `HTTP ${res.status}: ${errorText(body)}`.slice(0, 300) };
+    key = JSON.parse(body).key;
+  } catch (e) {
+    return { ok: false, code: 'NETWORK', detail: String(e?.message || e) };
+  }
+  if (!key) return { ok: false, code: 'OR_SIGNIN_FAILED', detail: 'no key returned' };
+  const { settings = {} } = await chrome.storage.local.get('settings');
+  await chrome.storage.local.set({ settings: { ...settings, provider: 'openrouter', openrouter: { ...settings.openrouter, apiKey: key } } });
+  return { ok: true };
 }
 
 // ChatGPT plan errors carry a code (developers.openai.com/siwc/token-sharing-open-source/errors-and-recovery).
@@ -154,15 +199,20 @@ export const replierName = (s) => {
 };
 
 // Jev (TypeSafe System One): typed judgments over `state`, one answer per question, e.g. a score (0 to the top level) per question.
-// Not streamed. settings.typesafe = {apiKey}; without one, callers fall back to code (docs.typesafe.ai/api).
+// Not streamed. settings.typesafe = {apiKey}; without one it goes through OpenRouter on the OpenRouter key (same API,
+// docs.typesafe.ai/sdk/python/usage), and with neither, callers fall back to code (docs.typesafe.ai/api).
 export const JUDGE_MODEL = 'jev-latest';
+export const JUDGE_MODEL_OPENROUTER = '~typesafe/jev-latest';
 export async function judge(state, questions) {
-  const apiKey = (await getSettings()).typesafe?.apiKey;
-  if (!apiKey) return { ok: false, code: 'NO_KEY', detail: 'No TypeSafe API key set.' };
+  const s = await getSettings();
+  const [url, apiKey, model, extra] = s.typesafe?.apiKey
+    ? ['https://api.typesafe.ai/v1/systemone', s.typesafe.apiKey, JUDGE_MODEL, {}]
+    : [`${BASE}/systemone`, s.openrouter.apiKey, JUDGE_MODEL_OPENROUTER, ATTRIBUTION];
+  if (!apiKey) return { ok: false, code: 'NO_KEY', detail: 'No TypeSafe or OpenRouter API key set.' };
   try {
-    const res = await fetch('https://api.typesafe.ai/v1/systemone', { method: 'POST', signal: AbortSignal.timeout(20000),
-      headers: { 'content-type': 'application/json', authorization: `Bearer ${apiKey}` },
-      body: JSON.stringify({ model: JUDGE_MODEL, state, questions }) });
+    const res = await fetch(url, { method: 'POST', signal: AbortSignal.timeout(20000),
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${apiKey}`, ...extra },
+      body: JSON.stringify({ model, state, questions }) });
     if (!res.ok) return httpError(res.status, await res.text().catch(() => ''));
     return { ok: true, answers: (await res.json()).answers || {} };
   } catch (e) {

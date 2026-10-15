@@ -14,6 +14,7 @@ const radios = () => [...document.querySelectorAll('input[name=provider]')];
 const provider = () => radios().find((r) => r.checked)?.value || 'openrouter';
 function showFields() {
   document.querySelectorAll('.fields[data-for]').forEach((f) => { f.hidden = f.dataset.for !== provider(); });
+  $('m-save').textContent = provider() === 'chatgpt' ? 'Use ChatGPT' : 'Use OpenRouter';
 }
 
 async function loadModel() {
@@ -21,11 +22,20 @@ async function loadModel() {
   radios().forEach((r) => { r.checked = r.value === s.provider; });
   const o = s.openrouter;
   $('o-key').value = o.apiKey || '';
+  showOpenRouter(o.apiKey);
   $('o-model').value = o.model || DEFAULT_MODEL;
   $('o-small').value = o.smallModel || DEFAULT_SMALL_MODEL;
   $('t-key').value = s.typesafe?.apiKey || '';
   showFields();
   await loadChatGPT(s.chatgpt);
+}
+
+// Connected (a saved key, from sign-in or pasted): Disconnect. Not connected: the sign-in button, and a key can be pasted.
+function showOpenRouter(key) {
+  $('o-signin').hidden = !!key;
+  $('o-signout').hidden = !key;
+  $('o-paste').hidden = !!key;
+  setStatus('o-who', key ? 'Connected' : 'Not connected', key ? 'ok' : '');
 }
 
 // Signed in: who, plus model pickers filled from the account's catalogue. Signed out: just the sign-in button.
@@ -54,12 +64,25 @@ async function saveModel() {
   } };
   if (!$('g-models').hidden) next.chatgpt = { model: $('g-model').value, smallModel: $('g-small').value };
   await chrome.storage.local.set({ settings: next });
+  showOpenRouter(next.openrouter.apiKey);
   setStatus('conn', 'Saved', 'ok');
 }
 
 radios().forEach((r) => r.addEventListener('change', () => { showFields(); setStatus('conn', 'Unsaved changes'); }));
 for (const id of ['o-key', 'o-model', 'o-small', 'g-model', 'g-small']) $(id).addEventListener('input', () => setStatus('conn', 'Unsaved changes'));
 
+$('o-signin').addEventListener('click', async () => {
+  await chrome.storage.session.remove('openrouter.result');
+  const res = await bg({ type: 'openrouter.signin' });
+  setStatus('o-who', res?.ok ? 'Finish connecting in the OpenRouter tab…' : res?.error?.hint || 'Couldn\'t start sign-in', res?.ok ? '' : 'err');
+});
+// Forgets the key here. It stays valid at OpenRouter until deleted at openrouter.ai/settings/keys.
+$('o-signout').addEventListener('click', async () => {
+  const { settings } = await chrome.storage.local.get('settings');
+  await chrome.storage.local.set({ settings: { ...settings, openrouter: { ...settings?.openrouter, apiKey: '' } } });
+  await loadModel();
+  setStatus('o-who', 'Disconnected. To revoke the key too, delete it at openrouter.ai/settings/keys.');
+});
 $('g-signin').addEventListener('click', async () => {
   await chrome.storage.session.remove('chatgpt.result');
   const res = await bg({ type: 'chatgpt.signin' });
@@ -70,28 +93,34 @@ $('g-signout').addEventListener('click', async () => {
   await loadModel();
   if (res?.ok && !res.revoked) setStatus('g-who', 'Signed out here. Couldn\'t confirm with OpenAI: disconnect Margin in ChatGPT settings if needed.', 'err');
 });
-// The background worker finishes sign-in when the ChatGPT tab redirects, then reports here.
+// The background worker finishes sign-in when the ChatGPT or OpenRouter tab redirects, then reports here.
 chrome.storage.onChanged.addListener(async (changes, area) => {
+  const o = area === 'session' && changes['openrouter.result']?.newValue;
+  if (o) {
+    await loadModel();
+    if (!o.ok) setStatus('o-who', o.error?.hint || 'Sign-in failed', 'err');
+    return;
+  }
   const r = area === 'session' && changes['chatgpt.result']?.newValue;
   if (!r) return;
   await loadModel();
   if (!r.ok) setStatus('g-who', r.error?.hint || 'Sign-in failed', 'err');
 });
 
-$('m-save').addEventListener('click', saveModel);
-
-$('test').addEventListener('click', async () => {
-  $('test').disabled = true;
+// One button: saves the choice, then checks it with a short call. A failed check keeps the choice (a free model may
+// just be rate-limited for a minute) and says why.
+$('m-save').addEventListener('click', async () => {
+  $('m-save').disabled = true;
   $('conn-err').replaceChildren();
   await saveModel();
-  setStatus('conn', 'Asking the model…');
+  setStatus('conn', 'Saved · checking the model…');
   const res = await bg({ type: 'provider.check' });
-  if (res?.ok) setStatus('conn', `Connected · replied in ${(res.ms / 1000).toFixed(1)} s`, 'ok');
+  if (res?.ok) setStatus('conn', `Saved · connected, replied in ${(res.ms / 1000).toFixed(1)} s`, 'ok');
   else {
-    setStatus('conn', 'Not connected', 'err');
+    setStatus('conn', 'Saved, but the model didn\'t reply', 'err');
     $('conn-err').replaceChildren(Object.assign(document.createElement('div'), { className: 'error', textContent: res?.error?.hint || 'Unknown error' }));
   }
-  $('test').disabled = false;
+  $('m-save').disabled = false;
 });
 
 // "Load models" fills both model fields' suggestions from OpenRouter's public model list.

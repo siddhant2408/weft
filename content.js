@@ -16,12 +16,7 @@
   const pending = new Set();         // ids waiting on the model (storage.session)
   const streams = {};                // id → partial reply while streaming
   const phases = {};                 // id → retrieval status, never source contents
-  const replierOf = (s) => {
-    if (s?.provider === 'chatgpt') return s.chatgpt?.model || 'ChatGPT';
-    const m = s?.openrouter?.model;
-    return !m || m === 'openrouter/free' ? 'AI' : m.split('/').pop();
-  };
-  let replier = replierOf(s0);
+  const replier = 'AI';  // prompts say AI whoever is set up; each reply is labelled with the model that wrote it (m.by)
 
   // After an extension reload this script is orphaned: chrome.* throws synchronously, so wrap in a promise.
   const chromeCall = (fn) => Promise.resolve().then(fn).catch(() => null);
@@ -634,7 +629,6 @@
 
   // Storage is the source of truth: writes from the side panel or background flow back here.
   chrome.storage.onChanged.addListener((changes, area) => {
-    if (area === 'local' && changes.settings) { replier = replierOf(changes.settings.newValue); renderCard(); }
     if (area === 'local' && urlKey && changes['page:' + urlKey]) {
       const next = changes['page:' + urlKey].newValue?.highlights || [];
       const sameIds = next.length === highlights.length && next.every((h, i) => h.id === highlights[i].id);
