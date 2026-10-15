@@ -1,6 +1,6 @@
 // User settings in chrome.storage.local under "settings". Shared by the content script and the options page.
 var MarginSettings = (() => {
-  // Sites where Margin does nothing at all: no Ask pill, no highlights, nothing ever sent.
+  // Sites where Weft does nothing at all: no Ask pill, no highlights, nothing ever sent.
   const DEFAULT_EXCLUDED = [
     'mail.google.com', 'outlook.live.com', 'outlook.office.com', 'outlook.office365.com', 'mail.yahoo.com', 'mail.proton.me',
     'web.whatsapp.com', 'app.slack.com', 'accounts.google.com', 'myaccount.google.com',

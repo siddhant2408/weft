@@ -3,7 +3,7 @@
 // The redirect must be an http://127.0.0.1 loopback. Nothing listens there: the background worker watches the
 // sign-in tab and reads the code from its URL as the browser heads there, then closes the tab.
 // Credentials live in the extension origin's IndexedDB, not chrome.storage: content scripts can read chrome.storage
-// from inside every web page, but IndexedDB is per origin, so only Margin's own pages and worker reach it. Chosen over a
+// from inside every web page, but IndexedDB is per origin, so only Weft's own pages and worker reach it. Chosen over a
 // native host so the extension ships alone; OpenAI advises keeping tokens out of browser storage (README says so).
 // JSON exports only include pages, so they never contain tokens.
 // ponytail: one saved account; add an account picker when someone needs a second ChatGPT account.
@@ -58,7 +58,7 @@ export async function signIn() {
     client_id: auth.clientId || 'dynamic_agent_client', ext_agent_host_id: hostId, response_type: 'code',
     redirect_uri: REDIRECT, resource: RESOURCE, scope: SCOPE, state, nonce, code_challenge_method: 'S256', code_challenge: challenge,
   };
-  if (!auth.clientId) params.agent_name_hint = 'Margin';  // first registration only
+  if (!auth.clientId) params.agent_name_hint = 'Weft';  // first registration only
   if (auth.idToken) params.id_token_hint = auth.idToken;  // returning account: skips the account picker
   if (auth.email) params.login_hint = auth.email;
   const tab = await chrome.tabs.create({ url: `${AUTH}/api/accounts/authorize?${new URLSearchParams(params)}` });
@@ -147,7 +147,7 @@ export async function signOut() {
       const res = await fetch(config.revocation_endpoint, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' },
         body: new URLSearchParams({ token: auth.refreshToken, token_type_hint: 'refresh_token', client_id: auth.clientId }) });
       revoked = res.ok;
-    } catch { /* signed out locally anyway; the user can disconnect Margin in ChatGPT settings */ }
+    } catch { /* signed out locally anyway; the user can disconnect Weft in ChatGPT settings */ }
   }
   await setAuth(without(auth, 'accessToken', 'refreshToken', 'idToken', 'expiresAt', 'scopes'));
   return { ok: true, revoked };

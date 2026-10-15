@@ -10,9 +10,9 @@ import { RESOURCE, accessToken, b64url, random } from './chatgpt.js';
 export const HOST = 'com.margin.host';  // native host: SQLite mirror only
 const TIMEOUT_MS = 120000;
 const BASE = 'https://openrouter.ai/api/v1';
-// Margin's public page: the HTTP-Referer that counts it in OpenRouter's app rankings.
-export const APP_URL = 'https://github.com/siddhant2408/margin';
-const ATTRIBUTION = { 'HTTP-Referer': APP_URL, 'X-Title': 'Margin' };
+// Weft's public page: the HTTP-Referer that counts it in OpenRouter's app rankings.
+export const APP_URL = 'https://github.com/siddhant2408/weft';
+const ATTRIBUTION = { 'HTTP-Referer': APP_URL, 'X-Title': 'Weft' };
 // openrouter/free routes each call to one of OpenRouter's free models ($0, rate-limited, model varies per call).
 export const DEFAULT_MODEL = 'openrouter/free';
 // Small jobs (concept tags, takeaways) never include the article, so a fast cheap model loses no cache.
@@ -109,7 +109,7 @@ const OR_PENDING = 'openrouter.pending';
 export async function openrouterSignIn({ forReplies = true } = {}) {
   const verifier = random(), state = random();
   const challenge = b64url(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier)));
-  const params = { callback_url: OR_CALLBACK, code_challenge: challenge, code_challenge_method: 'S256', state, key_label: 'Margin' };
+  const params = { callback_url: OR_CALLBACK, code_challenge: challenge, code_challenge_method: 'S256', state, key_label: 'Weft' };
   const tab = await chrome.tabs.create({ url: `https://openrouter.ai/auth?${new URLSearchParams(params)}` });
   await chrome.storage.session.set({ [OR_PENDING]: { tabId: tab.id, state, verifier, forReplies } });
   return { ok: true };

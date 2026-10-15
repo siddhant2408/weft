@@ -103,7 +103,7 @@ serve(JSON.stringify({ detail: 'Invalid API key' }), 401);
 assert.equal((await judge({}, q)).code, 'BAD_KEY');
 globalThis.fetch = async () => { throw new TypeError('Failed to fetch'); };
 assert.equal((await judge({}, q)).code, 'NETWORK');
-// No TypeSafe key: the same request goes to OpenRouter on the OpenRouter key, with Margin's attribution
+// No TypeSafe key: the same request goes to OpenRouter on the OpenRouter key, with Weft's attribution
 settings = { openrouter: { apiKey: 'or' } };
 serve(JSON.stringify({ answers: { helps: { type: 'noul', noul: 0.5 } } }));
 assert.equal((await judge({ a: 1 }, q)).ok, true);

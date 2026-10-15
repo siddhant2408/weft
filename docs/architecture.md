@@ -1,6 +1,6 @@
-# How Margin works
+# How Weft works
 
-Margin is a Chrome extension (Manifest V3, plain JavaScript, no build step). Everything runs in the browser: notes live in Chrome's extension storage, and the only network calls are to the model provider the user signs in to.
+Weft is a Chrome extension (Manifest V3, plain JavaScript, no build step). Everything runs in the browser: notes live in Chrome's extension storage, and the only network calls are to the model provider the user signs in to.
 
 ```mermaid
 flowchart LR
@@ -80,7 +80,7 @@ Only the service worker writes page records, one write at a time per page, so tw
 
 ## Messages
 
-Pages talk to the service worker with `chrome.runtime.sendMessage({type, ...})`. The worker only accepts messages from Margin itself.
+Pages talk to the service worker with `chrome.runtime.sendMessage({type, ...})`. The worker only accepts messages from Weft itself.
 
 | Type | What it does |
 |---|---|
@@ -96,7 +96,7 @@ Pages talk to the service worker with `chrome.runtime.sendMessage({type, ...})`.
 
 ## Models
 
-- **OpenRouter**: any OpenRouter model with the user's key, from one-click sign-in or pasted. Defaults to `openrouter/free`. Requests carry `HTTP-Referer` and `X-Title: Margin`.
+- **OpenRouter**: any OpenRouter model with the user's key, from one-click sign-in or pasted. Defaults to `openrouter/free`. Requests carry `HTTP-Referer` and `X-Title: Weft`.
 - **ChatGPT**: the user's ChatGPT plan (Go, Plus or Pro) through Sign in with ChatGPT.
 - Each provider has a main model (replies, summaries) and a small one (tags, takeaways).
 - **Jev** (TypeSafe) scores related threads, through the OpenRouter key or a TypeSafe key. Without either, the shortlist's top three are used.
@@ -107,9 +107,9 @@ Sign-in tabs return to a loopback address (`127.0.0.1` for ChatGPT, `localhost` 
 
 - Page text, passages and earlier replies are marked as untrusted in every prompt, and models get no tools.
 - Replies are rendered as Markdown through DOMPurify, inside a closed shadow root on pages.
-- The service worker ignores messages from anything but Margin, and there's no `externally_connectable`.
-- On excluded sites (banking and mail by default) Margin does nothing at all.
-- API keys are in `chrome.storage.local`. Chrome lets content scripts read that, so set a spend limit on keys you give Margin. ChatGPT tokens are in IndexedDB instead.
+- The service worker ignores messages from anything but Weft, and there's no `externally_connectable`.
+- On excluded sites (banking and mail by default) Weft does nothing at all.
+- API keys are in `chrome.storage.local`. Chrome lets content scripts read that, so set a spend limit on keys you give Weft. ChatGPT tokens are in IndexedDB instead.
 
 More detail: [related-threads.md](related-threads.md) (tagging, shortlist, scoring) and [privacy.md](privacy.md) (what is sent where).
 

@@ -1,6 +1,6 @@
 # Related threads
 
-Before each reply, Margin looks for threads you wrote on other pages that would help answer the current question, and sends up to three of them to the answering model. This page describes how they are found, what each step sees, and what reaches the model.
+Before each reply, Weft looks for threads you wrote on other pages that would help answer the current question, and sends up to three of them to the answering model. This page describes how they are found, what each step sees, and what reaches the model.
 
 ## The pipeline
 
@@ -14,7 +14,7 @@ A thread is tagged from its first question, before its first reply (`tagThread` 
 
 Tags are generous on purpose: they decide which threads *can* be considered (recall), and Jev decides which ones help this question (precision). A thread missing from the shortlist can't be recovered later; a weak one is dropped by Jev or ignored by the answering model.
 
-**Tags follow the conversation, at no extra call.** Every reply on a passage thread is sent with the thread's current tags and the known tags (`tagsNote`). When the latest message moves to a topic those don't cover, the answering model adds a last line `[[tags: Art museums | London]]`; Margin hides it while it streams, cuts it before saving (`replyTags` in `graph.js`) and adds the tags to the thread (`mergeTags`: only grows, no duplicates, at most 8). New tags count from the next reply on: this reply's related threads were picked before it was written.
+**Tags follow the conversation, at no extra call.** Every reply on a passage thread is sent with the thread's current tags and the known tags (`tagsNote`). When the latest message moves to a topic those don't cover, the answering model adds a last line `[[tags: Art museums | London]]`; Weft hides it while it streams, cuts it before saving (`replyTags` in `graph.js`) and adds the tags to the thread (`mergeTags`: only grows, no duplicates, at most 8). New tags count from the next reply on: this reply's related threads were picked before it was written.
 
 A highlight doesn't need a conversation. **Save without asking** (the bookmark on a new comment card) saves the highlight without calling the answering model. With the box empty it is a kept highlight, tagged from the passage itself. With text typed, the text is saved as a note, and the highlight is tagged from the passage and the note, so the note steers which later questions it matches. Either way, the highlight can later be found and sent with replies on other pages, like any thread. (There is no separate note mode any more. Notes saved before this change still display and are used.)
 
@@ -85,8 +85,8 @@ Each reply stores which threads it was given, as `{urlKey, id}` pairs in `relate
 
 - `MIN_SCORE` (0.75) was lowered from 1 by eye (Oct 2026): on 33 real pairs, 7 scored 0.8–1.0, so a cut at 1 flipped from run to run (a Holland Park highlight scored 1.01 in the eval and just under 1 in the real reply). A missed thread loses the memory; an extra one costs input and is ignored by the answering model. It is not yet set on labels. Check it against the synthetic pairs (`node test/eval-related.mjs` with no file) and your own threads:
   ```sh
-  TYPESAFE_API_KEY=… node test/eval-related.mjs margin-export.json                       # writes related-labels.json
-  TYPESAFE_API_KEY=… node test/eval-related.mjs margin-export.json related-labels.json   # after marking each "helps"
+  TYPESAFE_API_KEY=… node test/eval-related.mjs weft-export.json                       # writes related-labels.json
+  TYPESAFE_API_KEY=… node test/eval-related.mjs weft-export.json related-labels.json   # after marking each "helps"
   ```
 - Constants: shortlist size `max` in `findCandidates` (20); `MAX_TAGS` (8) in `graph.js`; `MAX_RELATED` (3), `MIN_SCORE` (0.75) and `CONTEXT_BYTES` (9,000) in `retrieval.js`.
 

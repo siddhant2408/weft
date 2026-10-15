@@ -42,7 +42,7 @@ const authUrl = new URL(opened[0]);
 const p = Object.fromEntries(authUrl.searchParams);
 assert.equal(authUrl.origin + authUrl.pathname, 'https://auth.openai.com/api/accounts/authorize');
 assert.equal(p.client_id, 'dynamic_agent_client');
-assert.equal(p.agent_name_hint, 'Margin');
+assert.equal(p.agent_name_hint, 'Weft');
 assert.equal(p.redirect_uri, 'http://127.0.0.1:1455/auth/callback');
 assert.equal(p.resource, 'https://api.openai.com/v1');
 assert.match(p.scope, /chatgpt\.tokens\.use\.direct/);

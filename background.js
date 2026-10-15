@@ -13,8 +13,8 @@ const HINTS = {
   NO_KEY: 'No OpenRouter API key set. Add one in Settings.',
   NO_MODEL: 'No ChatGPT model chosen. Pick one in Settings.',
   SIGNED_OUT: 'Signed out of ChatGPT. Sign in again in Settings.',
-  PLAN_NOT_GRANTED: 'Margin isn\'t allowed to use your ChatGPT plan. Sign in again in Settings and allow plan usage.',
-  PLAN_LIMIT: 'You\'ve reached your ChatGPT plan\'s limit for Margin. Check chatgpt.com/settings/usage, or switch to OpenRouter in Settings.',
+  PLAN_NOT_GRANTED: 'Weft isn\'t allowed to use your ChatGPT plan. Sign in again in Settings and allow plan usage.',
+  PLAN_LIMIT: 'You\'ve reached your ChatGPT plan\'s limit for Weft. Check chatgpt.com/settings/usage, or switch to OpenRouter in Settings.',
   PLAN_INELIGIBLE: 'This ChatGPT account or workspace can\'t share its plan with apps. Use OpenRouter in Settings.',
   SIGNIN_DECLINED: 'ChatGPT sign-in was cancelled.',
   SIGNIN_FAILED: 'ChatGPT sign-in failed. Try again.',
@@ -493,7 +493,7 @@ const handlers = {
   // One tiny Jev call on whichever key Related threads uses (a paid request on OpenRouter).
   'judge.check': async () => {
     const t0 = Date.now(), by = judgeBy(await getSettings());
-    const res = await judge('Margin settings check.', { ok: { type: 'noul', instructions: 'This is a settings check.' } });
+    const res = await judge('Weft settings check.', { ok: { type: 'noul', instructions: 'This is a settings check.' } });
     if (res.ok) return { ok: true, ms: Date.now() - t0 };
     return fail(res.code === 'NO_KEY' ? 'JUDGE_NO_KEY' : res.code === 'BAD_KEY' && by === 'typesafe' ? 'TS_BAD_KEY' : res.code, res.detail);
   },

@@ -2,7 +2,7 @@
 <html lang="en">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Margin · Settings</title>
+<title>Weft · Settings</title>
 <link rel="stylesheet" href="ui.css">
 <style>
   .wrap { max-width: 680px; margin: 0 auto; padding: 48px 24px 80px; }
@@ -35,7 +35,7 @@
   @media (max-width: 520px) { .wrap { padding: 28px 16px 64px; } h1 { font-size: 24px; } }
 </style>
 <div class="wrap">
-  <h1>Margin settings</h1>
+  <h1>Weft settings</h1>
 
   <section aria-labelledby="h-model">
     <h2 id="h-model">Model</h2>
@@ -67,7 +67,7 @@
         <label>Replies and summaries <select id="g-model"></select></label>
         <label>Tags and takeaways <select id="g-small"></select></label>
       </div>
-      <p class="help small">Replies count toward your ChatGPT plan's usage, shared with ChatGPT itself, including its 5-hour limit. Set how much Margin may use, or disconnect it, at <a href="https://chatgpt.com/settings/usage" target="_blank" rel="noopener">ChatGPT settings → Usage</a>. Your sign-in is stored in Margin's own extension storage, out of reach of web pages, and sent only to OpenAI. A weekly cap there limits what a leaked sign-in could spend.</p>
+      <p class="help small">Replies count toward your ChatGPT plan's usage, shared with ChatGPT itself, including its 5-hour limit. Set how much Weft may use, or disconnect it, at <a href="https://chatgpt.com/settings/usage" target="_blank" rel="noopener">ChatGPT settings → Usage</a>. Your sign-in is stored in Weft's own extension storage, out of reach of web pages, and sent only to OpenAI. A weekly cap there limits what a leaked sign-in could spend.</p>
     </div>
 
     <p class="help small">Tags and takeaways are short jobs, so a smaller, cheaper model does fine there. Switching the replies model re-sends the article on your next question.</p>
@@ -81,7 +81,7 @@
 
   <section aria-labelledby="h-related">
     <h2 id="h-related">Related threads</h2>
-    <p class="help">Before a reply, Margin looks for threads on other pages that share a tag with this one. TypeSafe's Jev model scores how much each would help with your question, and only the useful ones (up to 3) are sent along with it. Without Jev, the 3 with the most word overlap are sent.</p>
+    <p class="help">Before a reply, Weft looks for threads on other pages that share a tag with this one. TypeSafe's Jev model scores how much each would help with your question, and only the useful ones (up to 3) are sent along with it. Without Jev, the 3 with the most word overlap are sent.</p>
     <fieldset class="choices">
       <legend class="sr">Who runs Jev</legend>
       <label><input type="radio" name="judge" value="openrouter"> <span><b>OpenRouter</b> <span class="muted">Jev on your OpenRouter connection. Paid: one small request per reply, from your OpenRouter credits.</span></span></label>
@@ -109,7 +109,7 @@
 
   <section aria-labelledby="h-ex">
     <h2 id="h-ex">Excluded sites</h2>
-    <p class="help">Margin does nothing on these sites: no comment box, no highlights, nothing sent to a model. One domain per line; subdomains are included. Changes apply when you next load a page.</p>
+    <p class="help">Weft does nothing on these sites: no comment box, no highlights, nothing sent to a model. One domain per line; subdomains are included. Changes apply when you next load a page.</p>
     <textarea id="excluded" spellcheck="false" aria-label="Excluded sites, one per line"></textarea>
     <div class="row">
       <button class="btn plain" id="reset">Reset to defaults</button>
@@ -121,7 +121,7 @@
 
   <section aria-labelledby="h-data">
     <h2 id="h-data">Your data</h2>
-    <p class="help">Everything is stored only in this Chrome profile. Uninstalling Margin deletes it, so export first. <span id="counts"></span></p>
+    <p class="help">Everything is stored only in this Chrome profile. Uninstalling Weft deletes it, so export first. <span id="counts"></span></p>
     <div class="row">
       <button class="btn" id="export">Export JSON</button>
       <a class="btn plain" href="threads.html">All threads</a>

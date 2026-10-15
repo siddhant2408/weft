@@ -306,8 +306,8 @@ $('global').append(
 function render() {
   header();
   if (!urlKey) {
-    $('list').replaceChildren(el('div', { className: 'empty' }, el('b', { textContent: 'Margin isn\'t running on this tab' }),
-      'Open an article, or reload the page if you just installed or updated Margin.'));
+    $('list').replaceChildren(el('div', { className: 'empty' }, el('b', { textContent: 'Weft isn\'t running on this tab' }),
+      'Open an article, or reload the page if you just installed or updated Weft.'));
     $('foot').hidden = true;
     return;
   }
