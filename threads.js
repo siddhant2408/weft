@@ -16,7 +16,7 @@ async function load() {
   const all = await chrome.storage.local.get(null);
   pages = Object.entries(all).filter(([k]) => k.startsWith('page:')).map(([, v]) => v)
     .sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
-  index = new Map(buildIndex(pages).map(entry => [threadKey(entry.urlKey, entry.id), entry]));
+  index = new Map(buildIndex(pages).map((entry) => [threadKey(entry.urlKey, entry.id), entry]));
   render();
 }
 

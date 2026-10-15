@@ -1,4 +1,4 @@
-// Text-quote anchoring (W3C TextQuoteSelector + position hint, spec D4). Reads the DOM, never mutates it.
+// Text-quote anchoring (W3C TextQuoteSelector + position hint). Reads the DOM, never mutates it.
 // Plain script (content scripts can't be modules): exposes the MarginAnchor global.
 var MarginAnchor = (() => {
   const SKIP = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT', 'TEXTAREA', 'SELECT', 'TEMPLATE', 'IFRAME']);

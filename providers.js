@@ -3,7 +3,7 @@
 //   chatgpt    → the Responses API on the user's ChatGPT plan (Sign in with ChatGPT, see chatgpt.js)
 // system (instructions + article) is the stable, cached prefix; notes (the reader's notes) follow it uncached,
 // because they change as the user reads; prompt is the per-call part.
-// Raw fetch rather than SDKs: the extension has no build step (spec D1).
+// Raw fetch, no SDKs: the extension has no build step.
 
 import { RESOURCE, accessToken, b64url, random } from './chatgpt.js';
 

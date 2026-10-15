@@ -42,7 +42,7 @@ chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => 
 chrome.storage.session.setAccessLevel({ accessLevel: 'TRUSTED_AND_UNTRUSTED_CONTEXTS' }).catch(() => {});
 
 
-// --- Storage: this worker is the only writer; read-modify-write is serialised per page (spec §4) ---
+// --- Storage: this worker is the only writer; read-modify-write is serialised per page ---
 const chains = new Map();
 function updatePage(urlKey, fn, request) {
   const run = (chains.get(urlKey) || Promise.resolve()).then(async () => {
@@ -285,12 +285,12 @@ function runThread(urlKey, id, request) {
     const prompt = `${anchor}\n\nThread so far, oldest first:\n\n${transcript(t)}\n\nReply to my latest message.`;
     const system = await threadSystem(urlKey);
     const query = { urlKey, id, passage: t.exact || '', context: t.context || '', concepts: t.concepts || [],
-      question: t.messages.filter(m => m.role === 'user').at(-1)?.content || '', recent: t.messages.slice(-4, -1) };
+      question: t.messages.filter((m) => m.role === 'user').at(-1)?.content || '', recent: t.messages.slice(-4, -1) };
     const candidates = findCandidates(buildIndex(pages), query);
     const localNotes = [id !== 'page' && tagsNote(t.concepts || [], vocabulary(pages)), readerNotes(await getPage(urlKey), id)].filter(Boolean).join('\n\n');
     if (request.cancelled) return fail('CANCELLED');
     const res = await answerWithContext({ system, notes: localNotes, prompt, query, candidates, ask, judge,
-        onText: text => onText(text.replace(/\s*\[\[tags:[^\]]*\]\]/gi, '').replace(markerTail, '')),
+        onText: (text) => onText(text.replace(/\s*\[\[tags:[^\]]*\]\]/gi, '').replace(markerTail, '')),
         cancelled: () => request.cancelled,
         status: async (phase) => {
           if (!request.cancelled) await chrome.storage.session.set({ ['phase:' + request.key]: phase, ['pending:' + request.key]: Date.now() });
